@@ -180,23 +180,14 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
             return
         }
-        // Once: Settings smoke testi — altyapi mi yoksa oyunun display reddi mi?
-        updateStatus("Altyapi testi: Ayarlar sanal ekrana aciliyor...")
-        val smoke = ShizukuManager.exec("am start --display $displayId -n com.android.settings/.Settings")
-        Log.i(TAG, "Settings smoke result: $smoke")
-        updateStatus("Ayarlar testi: ${smoke.take(180)}")
-        updateStatus("5 sn icinde Ayarlar gorunurse altyapi OK, sonra oyun acilacak.")
-        val component = effectiveComponent
+        val cmd = "am start --display $displayId -n $effectiveComponent"
+        Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
+        val result = ShizukuManager.exec(cmd)
+        Log.i(TAG, "Launch result: $result")
+        updateStatus("Oyun baslatma: ${result.take(180)}")
         mainHandler.postDelayed({
-            val cmd = "am start --display $displayId -n $component"
-            Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
-            val result = ShizukuManager.exec(cmd)
-            Log.i(TAG, "Launch result: $result")
-            updateStatus("Oyun baslatma: ${result.take(180)}")
-            mainHandler.postDelayed({
-                verifyGameOnDisplay(displayId)
-            }, 2500)
-        }, 5000)
+            verifyGameOnDisplay(displayId)
+        }, 2500)
     }
     private fun verifyGameOnDisplay(displayId: Int) {
         val dump = ShizukuManager.exec("dumpsys activity activities | grep -E 'displayId=$displayId|topResumedActivity'")
