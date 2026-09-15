@@ -167,20 +167,33 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private fun launchTargetGameOnVirtualDisplay(displayId: Int) {
         var effectiveComponent = targetComponent
-        if (effectiveComponent.isNullOrEmpty()) {
-            effectiveComponent = resolveRealActivity(targetPackage)
-            if (!effectiveComponent.isNullOrEmpty()) {
-                targetComponent = effectiveComponent
-                Log.i(TAG, "Resolved component for $targetPackage: $effectiveComponent")
-                updateStatus("Aktivite: $effectiveComponent")
-            }
-        }
-        if (effectiveComponent.isNullOrEmpty()) {
-            updateStatus("HATA: Oyun aktivitesi cozulemedi, baslatma iptal.")
-            Log.e(TAG, "Launch ABORTED: no concrete component for $targetPackage. Refusing silent Display 0 fallback.")
-            Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
+        if (!effectiveComponent.isNullOrEmpty()) {
+            Log.i(TAG, "Using intent-supplied component for $targetPackage: $effectiveComponent")
+            updateStatus("Aktivite(intent): $effectiveComponent")
+            launchResolvedOnDisplay(displayId, effectiveComponent)
             return
         }
+        updateStatus("Aktivite cozumu (arka planda)...")
+        Thread {
+            val resolved = resolveRealActivity(targetPackage)
+            mainHandler.post {
+                if (!resolved.isNullOrEmpty()) {
+                    targetComponent = resolved
+                    Log.i(TAG, "Resolved component for $targetPackage: $resolved")
+                    updateStatus("Aktivite: $resolved")
+                    launchResolvedOnDisplay(displayId, resolved)
+                } else {
+                    Log.w(TAG, "resolveRealActivity empty for $targetPackage (intent-extra bos, shell cozumu yok)")
+                    updateStatus("Aktivite cozumu bos: intent-extra yok, shell bos dondu")
+                    updateStatus("HATA: Oyun aktivitesi cozulemedi, baslatma iptal.")
+                    Log.e(TAG, "Launch ABORTED: no concrete component for $targetPackage. Refusing silent Display 0 fallback.")
+                    Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun launchResolvedOnDisplay(displayId: Int, effectiveComponent: String) {
         updateStatus("Oyun hazirlaniyor (arka planda)...")
         Thread {
             backupGlobalSettings()
