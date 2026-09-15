@@ -407,50 +407,55 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun releaseShellDisplay() {
         // teardown cagrilari main thread'den gelir (surfaceDestroyed/onDestroy):
         // binder + shell exec IPC arka planda, state reset main'de.
+        // Tum okunabilir state Thread oncesi snapshot'lanir (backup-vs-restore yarisma yok).
         val service = stretchService
         val pkg = targetPackage
+        val hadBackup = settingsBackedUp
+        val freeformSnap = prevFreeform
+        val resizableSnap = prevForceResizable
+        val argsSnap = userServiceArgs
+        val connSnap = serviceConnection
         shellDisplayId = -1
         launchAttempted.set(false)
+        settingsBackedUp = false
         Thread {
             try {
                 service?.releaseDisplay()
             } catch (e: Throwable) {
                 Log.e(TAG, "Error releasing shell display", e)
             }
-            restoreGlobalSettingsSnapshot(pkg)
+            restoreGlobalSettingsSnapshot(pkg, hadBackup, freeformSnap, resizableSnap)
+            destroyShellServiceSnapshot(service, argsSnap, connSnap)
         }.start()
     }
 
-    private fun restoreGlobalSettingsSnapshot(pkg: String) {
-        if (!settingsBackedUp) return
-        if (prevFreeform.isNullOrEmpty() || prevFreeform == "null") {
+    private fun restoreGlobalSettingsSnapshot(pkg: String, hadBackup: Boolean, freeformSnap: String?, resizableSnap: String?) {
+        if (!hadBackup) return
+        if (freeformSnap.isNullOrEmpty() || freeformSnap == "null") {
             ShizukuManager.exec("settings delete global enable_freeform_support")
         } else {
-            ShizukuManager.exec("settings put global enable_freeform_support $prevFreeform")
+            ShizukuManager.exec("settings put global enable_freeform_support $freeformSnap")
         }
-        if (prevForceResizable.isNullOrEmpty() || prevForceResizable == "null") {
+        if (resizableSnap.isNullOrEmpty() || resizableSnap == "null") {
             ShizukuManager.exec("settings delete global force_resizable_activities")
         } else {
-            ShizukuManager.exec("settings put global force_resizable_activities $prevForceResizable")
+            ShizukuManager.exec("settings put global force_resizable_activities $resizableSnap")
         }
         if (pkg.isNotEmpty()) {
             val compatOff = ShizukuManager.exec("am compat disable 174042936 $pkg")
             Log.i(TAG, "Compat disable 174042936 $pkg: $compatOff")
             updateStatus("Compat kapatma: ${compatOff.take(180)}")
         }
-        settingsBackedUp = false
         Log.i(TAG, "Restored globals to backed-up values.")
     }
 
-    private fun destroyShellService() {
+    private fun destroyShellServiceSnapshot(service: IStretchService?, args: UserServiceArgs?, conn: ServiceConnection?) {
         try {
-            stretchService?.destroy()
+            service?.destroy()
         } catch (e: Throwable) {
             Log.e(TAG, "destroy() IPC failed", e)
         }
         try {
-            val args = userServiceArgs
-            val conn = serviceConnection
             if (args != null && conn != null) {
                 Shizuku.unbindUserService(args, conn, true)
             }
@@ -460,10 +465,21 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         stretchService = null
     }
 
+    private fun destroyShellService() {
+        // release thread'i destroy'u ustlendi; dogrudan cagri main IPC YAPMAZ.
+        // Sadece henuz bagli servis kaldiysa arka plana al (snapshot ile).
+        val service = stretchService ?: return
+        val argsSnap = userServiceArgs
+        val connSnap = serviceConnection
+        Thread {
+            destroyShellServiceSnapshot(service, argsSnap, connSnap)
+        }.start()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         mainHandler.removeCallbacksAndMessages(null)
         releaseShellDisplay()
-        destroyShellService()
     }
+
 }
