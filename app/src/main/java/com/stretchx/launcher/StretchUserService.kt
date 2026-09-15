@@ -1,6 +1,7 @@
 package com.stretchx.launcher
 
 import android.content.Context
+import android.content.ContextWrapper
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.os.RemoteException
@@ -13,6 +14,11 @@ import android.view.Surface
  * NO rikka.shizuku.SystemService -- neither exists in Shizuku API v13).
  * Creates the 4:3 virtual display as the SHELL owner, so any UID (PUBG,
  * Standoff 2, any game) can be launched on it via `am start --display`.
+ *
+ * Krit: DisplayManagerService.validatePackageName, Binder.getCallingUid()=2000
+ * ile getOpPackageName()/getPackageName() eslesmesi ister. Shizuku'nun verdigi
+ * Context bizim paketi dondurdugu icin "packageName must match the owner uid"
+ * patlar. Cozum: scrcpy tarzi ContextWrapper ile paket adini spoof'la.
  */
 class StretchUserService : IStretchService.Stub {
 
@@ -25,6 +31,7 @@ class StretchUserService : IStretchService.Stub {
     companion object {
         private const val TAG = "StretchUserService"
         private const val FLAG_TRUSTED = 1 shl 10
+        private const val SHELL_PACKAGE = "com.android.shell"
     }
 
     @Volatile
@@ -65,6 +72,12 @@ class StretchUserService : IStretchService.Stub {
         }
     }
 
+    /** UID 2000 (shell) olarak paket adini spoof'layan wrapper. */
+    private class ShellPackageContext(base: Context) : ContextWrapper(base) {
+        override fun getPackageName(): String = SHELL_PACKAGE
+        override fun getOpPackageName(): String = SHELL_PACKAGE
+    }
+
     @Throws(RemoteException::class)
     override fun createDisplay(width: Int, height: Int, densityDpi: Int, surface: Surface?): Int {
         return createShellOwnedDisplay(width, height, densityDpi, surface)
@@ -98,13 +111,15 @@ class StretchUserService : IStretchService.Stub {
         releaseShellDisplay()
         val context = resolveContext()
             ?: return -1.also { Log.e(TAG, "No Context available in shell process") }
-        val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        val shellContext = ShellPackageContext(context)
+        contextSource = "$contextSource + shell-spoof"
+        val shellDisplayManager = shellContext.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         // 1. Deneme: PUBLIC+PRESENTATION (en genis uyumluluk, TRUSTED SystemApi riski yok)
         try {
             val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
             lastFlagsUsed = "PUBLIC|PRESENTATION"
-            virtualDisplay = displayManager.createVirtualDisplay(
+            virtualDisplay = shellDisplayManager.createVirtualDisplay(
                 "StretchX_43_Display",
                 width,
                 height,
@@ -127,7 +142,7 @@ class StretchUserService : IStretchService.Stub {
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
                     FLAG_TRUSTED
             lastFlagsUsed = "PUBLIC|PRESENTATION|TRUSTED"
-            virtualDisplay = displayManager.createVirtualDisplay(
+            virtualDisplay = shellDisplayManager.createVirtualDisplay(
                 "StretchX_43_Display",
                 width,
                 height,
