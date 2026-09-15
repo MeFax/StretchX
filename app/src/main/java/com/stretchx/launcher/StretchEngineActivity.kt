@@ -174,7 +174,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 Log.i(TAG, "Resolved component for $targetPackage: $effectiveComponent")
                 updateStatus("Aktivite: $effectiveComponent")
             }
-        if (effectiveComponent.isNullOrEmpty()) {
+        }
             updateStatus("HATA: Oyun aktivitesi cozulemedi, baslatma iptal.")
             Log.e(TAG, "Launch ABORTED: no concrete component for $targetPackage. Refusing silent Display 0 fallback.")
             Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
