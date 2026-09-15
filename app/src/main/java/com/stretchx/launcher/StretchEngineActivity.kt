@@ -19,6 +19,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.stretchx.launcher.databinding.ActivityStretchEngineBinding
 import rikka.shizuku.Shizuku
 import rikka.shizuku.Shizuku.UserServiceArgs
+import java.util.concurrent.atomic.AtomicBoolean
 
 class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
@@ -47,8 +48,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var userServiceArgs: UserServiceArgs? = null
     private var serviceConnection: ServiceConnection? = null
     private val mainHandler = Handler(Looper.getMainLooper())
-    @Volatile
-    private var launchAttempted = false
+    private val launchAttempted = AtomicBoolean(false)
     private var prevFreeform: String? = null
     private var prevForceResizable: String? = null
     private var settingsBackedUp = false
@@ -137,10 +137,9 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun tryCreateShellDisplay() {
         val surface = pendingSurface ?: return
         val service = stretchService ?: return
-        // Cagri noktalari (surfaceCreated + bind callback) main thread'de kosar:
-        // kontrol + set ayni thread'de atomik, ikinci cagri duplicate display acamaz.
-        if (shellDisplayId > 0 || launchAttempted) return
-        launchAttempted = true
+        // Bind callback binder thread'den gelebilir (main-marshal yok):
+        // check-then-set CAS ile atomik, ikinci cagri duplicate display acamaz.
+        if (shellDisplayId > 0 || !launchAttempted.compareAndSet(false, true)) return
         val w = virtWidth
         val h = virtHeight
         val d = virtDensity
@@ -156,13 +155,13 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     if (isFinishing) return@post
                     shellDisplayId = id
                     if (id <= 0) {
-                        launchAttempted = false
+                        launchAttempted.set(false)
                         updateStatus("HATA: createDisplay id=$id. Bayrak=$flags | Baglam=$ctx | Hata=$err")
                         Log.e(TAG, "Shell createDisplay failed id=$id flags=$flags ctx=$ctx err=$err")
                         return@post
                     }
                     if (targetPackage.isEmpty()) {
-                        launchAttempted = false
+                        launchAttempted.set(false)
                         updateStatus("HATA: Hedef paket bos.")
                         return@post
                     }
@@ -173,7 +172,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             } catch (e: Throwable) {
                 Log.e(TAG, "Shell createDisplay IPC failed", e)
                 mainHandler.post {
-                    launchAttempted = false
+                    launchAttempted.set(false)
                     updateStatus("HATA: Sanal ekran IPC basarisiz: ${e.message}")
                 }
             }
@@ -420,7 +419,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Log.e(TAG, "Error releasing shell display", e)
         }
         shellDisplayId = -1
-        launchAttempted = false
+        launchAttempted.set(false)
         restoreGlobalSettings()
     }
 
