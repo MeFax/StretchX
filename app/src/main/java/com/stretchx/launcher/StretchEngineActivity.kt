@@ -194,7 +194,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         Log.i(TAG, "resolve-activity dump: $viaCmd")
         val component = viaCmd.lines()
             .map { it.trim() }
-            .firstOrNull { it.contains("/") && !it.startsWith("package:") }
+            .firstOrNull { it.matches(Regex("^[a-zA-Z0-9_.]+/[a-zA-Z0-9_.\$]+$")) }
         if (!component.isNullOrEmpty()) {
             Log.i(TAG, "resolve-activity -> $component")
             return component
@@ -209,17 +209,22 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun verifyAndRecover(displayId: Int, round: Int) {
-        val dump = ShizukuManager.exec("dumpsys activity activities | grep -B2 -A2 '$targetPackage'")
+        val dump = ShizukuManager.exec("dumpsys activity activities | grep -B4 -A4 '$targetPackage'")
         Log.i(TAG, "Display $displayId verification dump (round $round): $dump")
         updateStatus("Dogrulama($round): ${dump.take(240)}")
-        val onTarget = dump.lines().any { it.contains("displayId=$displayId") && it.contains(targetPackage) }
-        if (onTarget) {
+        // displayId Task header'da, paket Hist satirinda ayri satirlardadir;
+        // -B4 -A4 penceresi icinde ikisi de varsa ayni gorev blogundayiz demektir.
+        val windowHasDisplay = dump.contains("displayId=$displayId")
+        val windowHasPkg = dump.contains(targetPackage)
+        if (windowHasDisplay && windowHasPkg) {
             updateStatus("OK: Oyun sanal ekranda (id=$displayId).")
             return
         }
         val taskId = Regex("""taskId=(\d+)""").findAll(dump)
             .map { it.groupValues[1] }
             .firstOrNull()
+            ?: Regex("""Task\{[^}]*#(\d+)""").find(dump)?.groupValues?.get(1)
+            ?: Regex("""#(\d+):""").find(dump)?.groupValues?.get(1)
         if (taskId != null) {
             updateStatus("Fallback goruldu($round), gorev $taskId sanal ekrana tasiniyor...")
             // am stack move-task Android 10+'da kaldirildi; once modern komut, olmazsa legacy dene.
