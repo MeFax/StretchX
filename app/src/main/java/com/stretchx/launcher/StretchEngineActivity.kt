@@ -43,7 +43,9 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var virtHeight: Int = 1440
     private var virtDensity: Int = 440
 
+    @Volatile
     private var pendingSurface: Surface? = null
+    @Volatile
     private var stretchService: IStretchService? = null
     private var userServiceArgs: UserServiceArgs? = null
     private var serviceConnection: ServiceConnection? = null
@@ -136,6 +138,10 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun tryCreateShellDisplay() {
+        if (targetPackage.isEmpty()) {
+            updateStatus("HATA: Hedef paket bos.")
+            return
+        }
         val surface = pendingSurface ?: return
         val service = stretchService ?: return
         // Bind callback binder thread'den gelebilir (main-marshal yok):
@@ -153,17 +159,18 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 val flags = if (id <= 0) { try { service.lastFlags } catch (_: Throwable) { "" } } else ""
                 val ctx = if (id <= 0) { try { service.contextSource } catch (_: Throwable) { "" } } else ""
                 mainHandler.post {
-                    if (isFinishing) return@post
+                    if (isFinishing || pendingSurface == null) {
+                        // Olmus surface'e firlatma YOK: sizintiyi kapat, guard'i birak.
+                        try { service.releaseDisplay() } catch (_: Throwable) { }
+                        shellDisplayId = -1
+                        launchAttempted.set(false)
+                        return@post
+                    }
                     shellDisplayId = id
                     if (id <= 0) {
                         launchAttempted.set(false)
                         updateStatus("HATA: createDisplay id=$id. Bayrak=$flags | Baglam=$ctx | Hata=$err")
                         Log.e(TAG, "Shell createDisplay failed id=$id flags=$flags ctx=$ctx err=$err")
-                        return@post
-                    }
-                    if (targetPackage.isEmpty()) {
-                        launchAttempted.set(false)
-                        updateStatus("HATA: Hedef paket bos.")
                         return@post
                     }
                     directGameComponent = null
@@ -370,6 +377,10 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     }.start()
                 } else {
                     updateStatus("UYARI($round): Oyun sanal ekranda gorunmuyor, gorev bulunamadi.")
+                    // Zincir kopmasin: oyun henuz acilmadiysa bir sonraki tura devam et.
+                    if (round + 10 <= 32) {
+                        mainHandler.postDelayed({ verifyAndRecover(displayId, round + 10) }, 4000)
+                    }
                 }
             }
         }.start()
