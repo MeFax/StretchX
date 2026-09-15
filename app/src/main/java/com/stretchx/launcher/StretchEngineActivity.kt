@@ -194,17 +194,30 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun resolveRealActivity(pkg: String): String? {
-        // 1. Sistem cozucuye sor (wrapper alias degil, gercek hedef).
+        // 1. Sistem cozucuye sor; son satir esastir (tail -n 1 mantigi).
         val viaCmd = ShizukuManager.exec("cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $pkg")
         Log.i(TAG, "resolve-activity dump: $viaCmd")
-        val component = viaCmd.lines()
-            .map { it.trim() }
-            .firstOrNull { it.matches(Regex("^[a-zA-Z0-9_.]+/[a-zA-Z0-9_.\$]+$")) }
-        if (!component.isNullOrEmpty()) {
-            Log.i(TAG, "resolve-activity -> $component")
-            return component
+        val lines = viaCmd.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        val candidate = lines.lastOrNull { it.matches(Regex("^[a-zA-Z0-9_.]+/[a-zA-Z0-9_.\$]+$")) }
+        // ResolverActivity tuzagi: coklu LAUNCHER varsa sistem secici dondurur, gercek hedef degil.
+        if (candidate != null && candidate.endsWith("/com.android.internal.app.ResolverActivity")) {
+            Log.w(TAG, "resolve-activity returned ResolverActivity, rejecting: $candidate")
+            updateStatus("Secici dondu, alias caprazi deneniyor...")
+        } else if (!candidate.isNullOrEmpty()) {
+            // 2. Alias capraz kontrol: activity-alias ise targetActivity'yi bul.
+            val activityName = candidate.substringAfter("/")
+            val pkgDump = ShizukuManager.exec("dumpsys package $pkg | grep -A3 -B3 '$activityName'")
+            val target = Regex("""targetActivity=([a-zA-Z0-9_.\$]+)""").find(pkgDump)?.groupValues?.get(1)
+            if (!target.isNullOrEmpty()) {
+                val real = "$pkg/$target"
+                Log.i(TAG, "alias $candidate -> target $real")
+                updateStatus("Alias cozumu: $real")
+                return real
+            }
+            Log.i(TAG, "resolve-activity -> $candidate")
+            return candidate
         }
-        // 2. Fallback: PackageManager launch intent.
+        // 3. Fallback: PackageManager launch intent.
         return try {
             packageManager.getLaunchIntentForPackage(pkg)?.component?.flattenToString()
         } catch (e: Throwable) {
@@ -254,15 +267,10 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             ?: Regex("""taskId=(\d+)""").find(dump)?.groupValues?.get(1)
         if (taskId != null) {
             updateStatus("Fallback goruldu($round), gorev $taskId sanal ekrana tasiniyor...")
-            // Android 14/15: "am display move-stack" -> moveRootTaskToDisplay cagirir.
-            var move = ShizukuManager.exec("am display move-stack $taskId $displayId")
-            if (move.contains("Unknown command", ignoreCase = true) || move.contains("Unknown cmd", ignoreCase = true) || move.contains("Error", ignoreCase = true)) {
-                move = ShizukuManager.exec("am task move-task $taskId $displayId")
-            }
-            if (move.contains("Unknown command", ignoreCase = true) || move.contains("Unknown cmd", ignoreCase = true)) {
-                move = ShizukuManager.exec("am stack move-task $taskId $displayId")
-            }
-            Log.i(TAG, "move-task result: $move")
+            // Tek gecerli tasma komutu: am display move-stack (moveRootTaskToDisplay).
+            // am task move-task mevcut degil, am stack move-task display tasimaz.
+            val move = ShizukuManager.exec("am display move-stack $taskId $displayId")
+            Log.i(TAG, "move-stack result: $move")
             updateStatus("Tasima sonucu($round): ${move.take(180)}")
             mainHandler.postDelayed({ verifyAndRecover(displayId, round + 10) }, 4000)
         } else {
