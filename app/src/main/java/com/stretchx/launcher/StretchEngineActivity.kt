@@ -133,11 +133,25 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun launchTargetGameOnVirtualDisplay(displayId: Int) {
-        val cmd = if (!targetComponent.isNullOrEmpty()) {
-            "am start --display $displayId -n $targetComponent"
-        } else {
-            "monkey -p $targetPackage -c android.intent.category.LAUNCHER 1"
+        var effectiveComponent = targetComponent
+        if (effectiveComponent.isNullOrEmpty()) {
+            effectiveComponent = try {
+                packageManager.getLaunchIntentForPackage(targetPackage)?.component?.flattenToString()
+            } catch (e: Throwable) {
+                Log.e(TAG, "Component resolve failed for $targetPackage", e)
+                null
+            }
+            if (!effectiveComponent.isNullOrEmpty()) {
+                targetComponent = effectiveComponent
+                Log.i(TAG, "Resolved component for $targetPackage: $effectiveComponent")
+            }
         }
+        if (effectiveComponent.isNullOrEmpty()) {
+            Log.e(TAG, "Launch ABORTED: no concrete component for $targetPackage. Refusing silent Display 0 fallback.")
+            android.widget.Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        val cmd = "am start --display $displayId -n $effectiveComponent"
         Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
         val result = ShizukuManager.exec(cmd)
         Log.i(TAG, "Launch result: $result")
@@ -171,9 +185,12 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         launchAttempted = false
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        releaseShellDisplay()
+    private fun destroyShellService() {
+        try {
+            stretchService?.destroy()
+        } catch (e: Throwable) {
+            Log.e(TAG, "destroy() IPC failed", e)
+        }
         try {
             val args = userServiceArgs
             val conn = serviceConnection
@@ -184,5 +201,11 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Log.e(TAG, "unbindUserService failed", e)
         }
         stretchService = null
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        releaseShellDisplay()
+        destroyShellService()
     }
 }
