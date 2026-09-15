@@ -39,6 +39,12 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+            }
+        }
+
         setupShizukuStatus()
         setupGameList()
         setupActions()
@@ -47,6 +53,10 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateShizukuBadge()
+        updateDeviceNativeStatus()
+        if (binding.switchOverlay.isChecked && !Settings.canDrawOverlays(this)) {
+            binding.switchOverlay.isChecked = false
+        }
     }
 
     private fun setupShizukuStatus() {
@@ -62,6 +72,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     updateShizukuBadge()
                     if (granted) {
+                        updateDeviceNativeStatus()
                         Toast.makeText(this, "Shizuku yetkisi başarıyla verildi!", Toast.LENGTH_SHORT).show()
                     } else {
                         Toast.makeText(this, "Shizuku yetkisi reddedildi.", Toast.LENGTH_SHORT).show()
@@ -80,6 +91,7 @@ class MainActivity : AppCompatActivity() {
             binding.tvShizukuStatus.text = getString(R.string.shizuku_connected)
             binding.btnConnectShizuku.isEnabled = false
             binding.btnConnectShizuku.text = "Bağlandı"
+            updateDeviceNativeStatus()
         } else {
             binding.indicatorShizuku.setBackgroundColor(ContextCompat.getColor(this, R.color.status_red))
             binding.tvShizukuStatus.text = getString(R.string.shizuku_disconnected)
@@ -135,7 +147,38 @@ class MainActivity : AppCompatActivity() {
         return gameList
     }
 
+    private fun updateDeviceNativeStatus() {
+        if (!ShizukuManager.isAvailable() || !ShizukuManager.hasPermission()) {
+            binding.tvDeviceNativeStatus.text = getString(R.string.status_device_native_default)
+            return
+        }
+
+        activityScope.launch(Dispatchers.IO) {
+            DisplayOptimizer.backupCurrentDisplayState(this@MainActivity)
+            val (size, density, hadOverride) = DisplayOptimizer.getBackupDisplayState(this@MainActivity)
+            withContext(Dispatchers.Main) {
+                if (size != null) {
+                    val modeLabel = if (hadOverride) " (FHD+ Modu)" else " (QHD+ Doğal)"
+                    binding.tvDeviceNativeStatus.text = "Cihaz Doğal Modu: $size @ ${density} DPI$modeLabel"
+                } else {
+                    binding.tvDeviceNativeStatus.text = getString(R.string.status_device_native_default)
+                }
+            }
+        }
+    }
+
     private fun setupActions() {
+        binding.switchOverlay.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked && !Settings.canDrawOverlays(this)) {
+                Toast.makeText(
+                    this,
+                    "Yüzen buton için 'Diğer uygulamaların üzerinde görüntüleme' izni gereklidir.",
+                    Toast.LENGTH_SHORT
+                ).show()
+                checkOverlayPermission()
+            }
+        }
+
         binding.btnLaunchGame.setOnClickListener {
             val selectedGame = gameAdapter?.getSelectedGame()
             if (selectedGame == null) {
@@ -156,7 +199,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // 1. Apply true stretch & letterbox override
-            val success = DisplayOptimizer.applyTrueStretch(preset)
+            val success = DisplayOptimizer.applyTrueStretch(this, preset)
             if (!success) {
                 Toast.makeText(this, "Çözünürlük komutu başarısız oldu.", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
@@ -172,14 +215,19 @@ class MainActivity : AppCompatActivity() {
                 startService(watchdogIntent)
             }
 
-            // 3. Start Floating Fail-Safe Overlay if permission granted
-            if (Settings.canDrawOverlays(this)) {
+            // 3. Start Floating Fail-Safe Overlay ONLY IF explicitly toggled ON and permission granted
+            if (binding.switchOverlay.isChecked && Settings.canDrawOverlays(this)) {
                 startService(Intent(this, FloatingOverlayService::class.java))
-            } else {
-                checkOverlayPermission()
             }
 
-            // 4. Launch the target game via Intent or Privileged Shell
+            // 4. Show explanation that Notification Bar button is the 100% safe, ban-free reset mechanism
+            Toast.makeText(
+                this,
+                "Güvenli Mod Aktif: Bildirim çubuğundaki 'Normale Dön' butonu %100 anti-cheat güvenlidir (ban riski sıfır).",
+                Toast.LENGTH_LONG
+            ).show()
+
+            // 5. Launch the target game via Intent or Privileged Shell
             val launchIntent = packageManager.getLaunchIntentForPackage(selectedGame.packageName)
             val componentStr = launchIntent?.component?.flattenToString()
             if (launchIntent != null) {
@@ -191,10 +239,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnEmergencyReset.setOnClickListener {
-            DisplayOptimizer.resetToNative()
+            DisplayOptimizer.resetToNative(this)
             stopService(Intent(this, GameWatchdogService::class.java))
             stopService(Intent(this, FloatingOverlayService::class.java))
-            Toast.makeText(this, "Ekran S25 Ultra fabrika ayarlarına (3120x1440 120Hz) döndürüldü.", Toast.LENGTH_SHORT).show()
+            updateDeviceNativeStatus()
+            Toast.makeText(this, "Ekran S25 Ultra orijinal ayarlarına döndürüldü.", Toast.LENGTH_SHORT).show()
         }
     }
 

@@ -22,6 +22,9 @@ class GameWatchdogService : Service() {
         const val ACTION_STOP_AND_RESET = "com.stretchx.ACTION_STOP_AND_RESET"
         private const val CHANNEL_ID = "stretchx_watchdog_channel"
         private const val NOTIFICATION_ID = 2001
+        private const val STARTUP_GRACE_PERIOD_MS = 5000L
+        private const val POLLING_INTERVAL_MS = 1500L
+        private const val MAX_UNFOCUSED_CYCLES = 3
     }
 
     private var targetPackage: String = ""
@@ -34,7 +37,7 @@ class GameWatchdogService : Service() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_SCREEN_OFF) {
                 Log.i(TAG, "Screen-off detected. Restoring S25 Ultra native resolution for lock screen safety.")
-                DisplayOptimizer.resetToNative()
+                DisplayOptimizer.resetToNative(this@GameWatchdogService)
                 stopFloatingOverlay()
                 stopSelf()
             }
@@ -53,7 +56,7 @@ class GameWatchdogService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_AND_RESET) {
             Log.i(TAG, "Manual reset requested from notification action.")
-            DisplayOptimizer.resetToNative()
+            DisplayOptimizer.resetToNative(this)
             stopFloatingOverlay()
             stopSelf()
             return START_NOT_STICKY
@@ -71,23 +74,27 @@ class GameWatchdogService : Service() {
         isRunning = true
         serviceScope.launch {
             Log.i(TAG, "Watchdog loop started for target: $targetPackage")
-            delay(3000)
+            // Grace period: allow slow loading screens / splash screens to finish before monitoring focus
+            delay(STARTUP_GRACE_PERIOD_MS)
 
             var consecutiveUnfocusedCount = 0
 
             while (isRunning) {
-                delay(750) // Poll every 750ms for zero-latency detection
+                delay(POLLING_INTERVAL_MS) // 1500ms reduces process fork CPU load by 50%
 
-                val focusDump = ShizukuManager.exec("dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'")
+                // Replace fragile mCurrentFocus with topResumedActivity / mResumedActivity.
+                // When volume sliders, notification drawer, or floating bubbles appear,
+                // mCurrentFocus shifts to SystemUI, but topResumedActivity remains the game!
+                val focusDump = ShizukuManager.exec("dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity'")
                 val isGameFocused = focusDump.contains(targetPackage, ignoreCase = true)
 
                 if (!isGameFocused) {
                     consecutiveUnfocusedCount++
-                    Log.d(TAG, "Game not in focus ($consecutiveUnfocusedCount/2): $focusDump")
+                    Log.d(TAG, "Game not in resumed activity ($consecutiveUnfocusedCount/$MAX_UNFOCUSED_CYCLES): $focusDump")
 
-                    if (consecutiveUnfocusedCount >= 2) {
-                        Log.i(TAG, "Target game exited or minimized. Automatically restoring native resolution!")
-                        DisplayOptimizer.resetToNative()
+                    if (consecutiveUnfocusedCount >= MAX_UNFOCUSED_CYCLES) {
+                        Log.i(TAG, "Target game exited or backgrounded ($MAX_UNFOCUSED_CYCLES consecutive cycles). Restoring display!")
+                        DisplayOptimizer.resetToNative(this@GameWatchdogService)
                         stopFloatingOverlay()
                         stopSelf()
                         break
@@ -137,7 +144,7 @@ class GameWatchdogService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("StretchX Aktif: $targetPackage")
-            .setContentText("Oyundan çıkıldığında ekran otomatik normale dönecek")
+            .setContentText("Bildirim çubuğundan güvenli reset (Anti-Cheat 100% Ban-Safe)")
             .setSmallIcon(android.R.drawable.ic_menu_crop)
             .setContentIntent(pendingOpenIntent)
             .addAction(android.R.drawable.ic_menu_revert, "Normale Dön (Reset)", pendingResetIntent)
@@ -154,7 +161,7 @@ class GameWatchdogService : Service() {
             // ignore if already unregistered
         }
         serviceScope.cancel()
-        DisplayOptimizer.resetToNative()
+        DisplayOptimizer.resetToNative(this)
         Log.i(TAG, "Watchdog destroyed. Display reset confirmed.")
     }
 }

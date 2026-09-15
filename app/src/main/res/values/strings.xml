@@ -15,4 +15,6 @@
     <string name="overlay_active">Stretch Aktif (4:3)</string>
     <string name="overlay_btn_reset">Normale Dön</string>
     <string name="overlay_btn_restretch">Yeniden Ger</string>
+    <string name="switch_overlay_title">Yüzen HUD Butonu (Deneysel/Opsiyonel)</string>
+    <string name="status_device_native_default">Cihaz Doğal Modu: Otomatik Algılandı</string>
 </resources>

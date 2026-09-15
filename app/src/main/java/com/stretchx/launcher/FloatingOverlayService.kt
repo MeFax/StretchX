@@ -17,11 +17,22 @@ import android.widget.Button
 import android.widget.TextView
 
 class FloatingOverlayService : Service() {
+    companion object {
+        const val ACTION_STOP = "com.stretchx.launcher.ACTION_STOP_OVERLAY"
+    }
+
     private var windowManager: WindowManager? = null
     private var overlayView: View? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        return START_NOT_STICKY
+    }
     @SuppressLint("InflateParams", "ClickableViewAccessibility")
     override fun onCreate() {
         super.onCreate()
@@ -46,7 +57,7 @@ class FloatingOverlayService : Service() {
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             layoutType,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -57,7 +68,12 @@ class FloatingOverlayService : Service() {
         setupDrag(overlayView!!, params)
         setupActions(overlayView!!)
 
-        windowManager?.addView(overlayView, params)
+        try {
+            windowManager?.addView(overlayView, params)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            stopSelf()
+        }
     }
 
     private fun setupActions(view: View) {
@@ -65,24 +81,25 @@ class FloatingOverlayService : Service() {
         val btnRestretch = view.findViewById<Button>(R.id.btnOverlayRestretch)
 
         btnReset.setOnClickListener {
-            DisplayOptimizer.resetToNative()
+            DisplayOptimizer.resetToNative(this)
             stopSelf()
         }
 
         btnRestretch.setOnClickListener {
             // Re-apply 4:3 stretch in case game loading screen re-initialized surface
-            DisplayOptimizer.applyTrueStretch(DisplayOptimizer.PRESET_4_3_ULTRA)
+            DisplayOptimizer.applyTrueStretch(this, DisplayOptimizer.PRESET_4_3_ULTRA)
         }
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupDrag(view: View, params: WindowManager.LayoutParams) {
+        val dragHandle = view.findViewById<View>(R.id.tvOverlayStatus) ?: view
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
         var initialTouchY = 0f
 
-        view.setOnTouchListener { _, event ->
+        dragHandle.setOnTouchListener { _, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = params.x
@@ -94,7 +111,11 @@ class FloatingOverlayService : Service() {
                 MotionEvent.ACTION_MOVE -> {
                     params.x = initialX + (event.rawX - initialTouchX).toInt()
                     params.y = initialY + (event.rawY - initialTouchY).toInt()
-                    windowManager?.updateViewLayout(view, params)
+                    try {
+                        windowManager?.updateViewLayout(view, params)
+                    } catch (e: Exception) {
+                        // Ignore if view is no longer attached
+                    }
                     true
                 }
                 else -> false
@@ -105,7 +126,11 @@ class FloatingOverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         overlayView?.let {
-            windowManager?.removeView(it)
+            try {
+                windowManager?.removeView(it)
+            } catch (e: Exception) {
+                // Ignore if view was already removed
+            }
             overlayView = null
         }
     }
