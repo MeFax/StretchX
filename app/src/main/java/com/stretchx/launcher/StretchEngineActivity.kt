@@ -56,7 +56,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         hideSystemUI()
@@ -114,15 +114,16 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun setupTouchRouting() {
         binding.surfaceStretch.setOnTouchListener { view, event ->
             if (shellDisplayId <= 0) return@setOnTouchListener false
-
             val surfaceWidth = view.width.toFloat()
             val surfaceHeight = view.height.toFloat()
             if (surfaceWidth <= 0 || surfaceHeight <= 0) return@setOnTouchListener false
-
             val scaleX = virtWidth.toFloat() / surfaceWidth
             val scaleY = virtHeight.toFloat() / surfaceHeight
-
-            InputInjector.injectScaledTouch(event, shellDisplayId, scaleX, scaleY)
+            val ok = InputInjector.injectScaledTouch(event, shellDisplayId, scaleX, scaleY)
+            if (!ok) {
+                Log.w(TAG, "Touch inject failed display=$shellDisplayId action=${event.actionMasked}")
+                updateStatus("UYARI: dokunma enjekte edilemedi (display=$shellDisplayId).")
+            }
             true
         }
     }
@@ -331,7 +332,6 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 }
             }
             val taskId = gameTaskId
-                ?: Regex("""taskId=(\d+)""").find(dump)?.groupValues?.get(1)
             mainHandler.post {
                 updateStatus("Dogrulama($round): ${dump.take(240)}")
                 if (gameDisplay == displayId) {
@@ -341,7 +341,9 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 if (gameDisplay != null) {
                     updateStatus("Oyun Display $gameDisplay'de, hedef $displayId. Tasma deneniyor...")
                 }
-                if (taskId != null) {
+                // Garanti: oyun dump'ta yoksa ilgisiz gorev ASLA tasinmaz.
+                // Eski global taskId fallback kaldirildi (yanlis pencere + sahte ilerleme).
+                if (taskId != null && gameDisplay != null) {
                     updateStatus("Fallback goruldu($round), gorev $taskId sanal ekrana tasiniyor...")
                     Thread {
                         val move = ShizukuManager.exec("am display move-stack $taskId $displayId")

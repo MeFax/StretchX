@@ -22,10 +22,10 @@ object InputInjector {
     }
 
     fun isReady(): Boolean {
-        if (iInputManagerInstance == null || injectMethod == null) {
+        if (iInputManagerInstance == null || injectMethod == null || setDisplayIdMethod == null) {
             initBinder()
         }
-        return iInputManagerInstance != null && injectMethod != null
+        return iInputManagerInstance != null && injectMethod != null && setDisplayIdMethod != null
     }
 
     private fun initBinder() {
@@ -75,29 +75,32 @@ object InputInjector {
         scaleFactorY: Float
     ): Boolean {
         if (!isReady()) return false
-
-        return try {
-            val clonedEvent = MotionEvent.obtain(event)
-
+        // Fail-closed: setDisplayId yoksa Display 0'a sessiz enjeksiyon YASAK.
+        val setDisplay = setDisplayIdMethod ?: run {
+            Log.e(TAG, "setDisplayId unavailable, refusing Display 0 inject")
+            return false
+        }
+        val inject = injectMethod ?: return false
+        val target = iInputManagerInstance ?: return false
+        val clonedEvent = MotionEvent.obtain(event)
+        try {
             // 1. Transform ALL pointers simultaneously (Multi-touch / Claw grip safe)
             val matrix = Matrix().apply {
                 setScale(scaleFactorX, scaleFactorY)
             }
             clonedEvent.transform(matrix)
-
             // 2. Route event directly to the Virtual Display ID
-            if (setDisplayIdMethod != null) {
-                setDisplayIdMethod?.invoke(clonedEvent, targetDisplayId)
-            }
-
+            setDisplay.invoke(clonedEvent, targetDisplayId)
             // 3. Inject asynchronously (mode 0 = INPUT_EVENT_INJECTION_SYNC_NONE, zero latency)
-            val success = injectMethod?.invoke(iInputManagerInstance, clonedEvent, 0) as? Boolean ?: false
-
-            clonedEvent.recycle()
-            success
+            return inject.invoke(target, clonedEvent, 0) as? Boolean ?: false
         } catch (e: Throwable) {
             Log.e(TAG, "Error injecting scaled touch event", e)
-            false
+            return false
+        } finally {
+            try {
+                clonedEvent.recycle()
+            } catch (_: Throwable) {
+            }
         }
     }
 }

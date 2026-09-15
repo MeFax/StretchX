@@ -86,8 +86,10 @@ class FloatingOverlayService : Service() {
         }
 
         btnRestretch.setOnClickListener {
-            // Re-apply 4:3 stretch in case game loading screen re-initialized surface
-            DisplayOptimizer.applyTrueStretch(this, DisplayOptimizer.PRESET_4_3_ULTRA)
+            // Engine oturumunda wm override YASAK: VirtualDisplay scaler yeter.
+            // Sadece native'e don, engine yeniden acilirken temiz baslar.
+            DisplayOptimizer.resetToNative(this)
+            stopSelf()
         }
     }
 
