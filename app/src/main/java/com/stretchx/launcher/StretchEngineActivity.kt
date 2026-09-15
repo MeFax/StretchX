@@ -404,7 +404,24 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         Log.i(TAG, "Backed up globals: freeform=$prevFreeform forceResizable=$prevForceResizable")
     }
 
-    private fun restoreGlobalSettings() {
+    private fun releaseShellDisplay() {
+        // teardown cagrilari main thread'den gelir (surfaceDestroyed/onDestroy):
+        // binder + shell exec IPC arka planda, state reset main'de.
+        val service = stretchService
+        val pkg = targetPackage
+        shellDisplayId = -1
+        launchAttempted.set(false)
+        Thread {
+            try {
+                service?.releaseDisplay()
+            } catch (e: Throwable) {
+                Log.e(TAG, "Error releasing shell display", e)
+            }
+            restoreGlobalSettingsSnapshot(pkg)
+        }.start()
+    }
+
+    private fun restoreGlobalSettingsSnapshot(pkg: String) {
         if (!settingsBackedUp) return
         if (prevFreeform.isNullOrEmpty() || prevFreeform == "null") {
             ShizukuManager.exec("settings delete global enable_freeform_support")
@@ -416,24 +433,13 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         } else {
             ShizukuManager.exec("settings put global force_resizable_activities $prevForceResizable")
         }
-        if (targetPackage.isNotEmpty()) {
-            val compatOff = ShizukuManager.exec("am compat disable 174042936 $targetPackage")
-            Log.i(TAG, "Compat disable 174042936 $targetPackage: $compatOff")
+        if (pkg.isNotEmpty()) {
+            val compatOff = ShizukuManager.exec("am compat disable 174042936 $pkg")
+            Log.i(TAG, "Compat disable 174042936 $pkg: $compatOff")
             updateStatus("Compat kapatma: ${compatOff.take(180)}")
         }
         settingsBackedUp = false
         Log.i(TAG, "Restored globals to backed-up values.")
-    }
-
-    private fun releaseShellDisplay() {
-        try {
-            stretchService?.releaseDisplay()
-        } catch (e: Throwable) {
-            Log.e(TAG, "Error releasing shell display", e)
-        }
-        shellDisplayId = -1
-        launchAttempted.set(false)
-        restoreGlobalSettings()
     }
 
     private fun destroyShellService() {
