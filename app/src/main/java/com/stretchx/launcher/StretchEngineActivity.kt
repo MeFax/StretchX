@@ -199,7 +199,9 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             backupGlobalSettings()
             ShizukuManager.exec("settings put global enable_freeform_support 1")
             ShizukuManager.exec("settings put global force_resizable_activities 1")
-            ShizukuManager.exec("am compat enable 174042936 $targetPackage")
+            val compatRes = ShizukuManager.exec("am compat enable 174042936 $targetPackage")
+            Log.i(TAG, "Compat enable 174042936 $targetPackage: $compatRes")
+            mainHandler.post { updateStatus("Compat: ${compatRes.take(180)}") }
             ShizukuManager.exec("am force-stop $targetPackage")
             val cmd = "am start --user current --display $displayId -f 0x18000000 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $effectiveComponent"
             Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
@@ -388,7 +390,9 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             ShizukuManager.exec("settings put global force_resizable_activities $prevForceResizable")
         }
         if (targetPackage.isNotEmpty()) {
-            ShizukuManager.exec("am compat disable 174042936 $targetPackage")
+            val compatOff = ShizukuManager.exec("am compat disable 174042936 $targetPackage")
+            Log.i(TAG, "Compat disable 174042936 $targetPackage: $compatOff")
+            updateStatus("Compat kapatma: ${compatOff.take(180)}")
         }
         settingsBackedUp = false
         Log.i(TAG, "Restored globals to backed-up values.")
