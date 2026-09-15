@@ -182,6 +182,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         backupGlobalSettings()
         ShizukuManager.exec("settings put global enable_freeform_support 1")
         ShizukuManager.exec("settings put global force_resizable_activities 1")
+        ShizukuManager.exec("am compat enable FORCE_RESIZE_APP $targetPackage")
         ShizukuManager.exec("am force-stop $targetPackage")
         val cmd = "am start --display $displayId --activity-new-task --activity-multiple-task -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $effectiveComponent"
         Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
@@ -218,64 +219,87 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             return candidate
         }
         // 3. Fallback: PackageManager launch intent.
-        return try {
+        val launchComp = try {
             packageManager.getLaunchIntentForPackage(pkg)?.component?.flattenToString()
         } catch (e: Throwable) {
             Log.e(TAG, "Component resolve failed for $pkg", e)
             null
         }
+        // 4. UE4 splash bypass: dumpsys package'tan GameActivity'yi bul, varsa onu dondur.
+        // Splash sanal ekranda acilip GameActivity display'siz hop yapiyor; dogrudan Game'e
+        // vurmak hop'u ortadan kaldirir (shell UID exported-olmayani da baslatabilir).
+        if (launchComp != null) {
+            val allActs = ShizukuManager.exec("dumpsys package $pkg | grep -E 'Activity|targetActivity' | grep -i -E 'game|ue4'")
+            val gameAct = Regex("""([a-zA-Z0-9_.]+\.(GameActivity|UEGameActivity|Game))""").find(allActs)?.groupValues?.get(1)
+                ?: Regex("""targetActivity=([a-zA-Z0-9_.\$]+Game[a-zA-Z0-9_.\$]*)""").find(allActs)?.groupValues?.get(1)
+            if (!gameAct.isNullOrEmpty()) {
+                val direct = if (gameAct.contains("/")) gameAct else "$pkg/$gameAct"
+                Log.i(TAG, "Direct GameActivity bypass: $direct (wrapper was $launchComp)")
+                updateStatus("Direkt oyun: $direct")
+                return direct
+            }
+        }
+        return launchComp
     }
 
     private fun verifyAndRecover(displayId: Int, round: Int) {
-        val dump = ShizukuManager.exec("dumpsys activity activities")
-        Log.i(TAG, "Display $displayId verification dump (round $round): ${dump.take(2000)}")
-        updateStatus("Dogrulama($round): ${dump.take(240)}")
-        // Hiyerarsi: Display #N basligi -> Task{... #taskId ...} blogu -> Hist satirinda paket.
-        // grep penceresi Display basligini kesebildigi icin full dump Kotlin'de parse edilir.
-        var currentDisplay: Int? = null
-        var gameDisplay: Int? = null
-        var gameTaskId: String? = null
-        var pendingTaskId: String? = null
-        var pendingDisplay: Int? = null
-        for (rawLine in dump.lines()) {
-            val line = rawLine.trim()
-            Regex("""Display #(\d+)""").find(line)?.let {
-                currentDisplay = it.groupValues[1].toIntOrNull()
-                pendingTaskId = null
-                pendingDisplay = null
-            }
-            val taskMatch = Regex("""Task\{[^}]*#(\d+)""").find(line)
-            if (taskMatch != null) {
-                pendingTaskId = taskMatch.groupValues[1]
-                pendingDisplay = Regex("""displayId=(\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull()
-                    ?: currentDisplay
-            }
-            if (line.contains(targetPackage) && (line.contains("Hist") || line.contains("packageName=") || line.contains("A="))) {
-                gameDisplay = pendingDisplay ?: currentDisplay
-                gameTaskId = pendingTaskId
-                break
-            }
-        }
-        if (gameDisplay == displayId) {
-            updateStatus("OK: Oyun sanal ekranda (id=$displayId).")
+        if (round > 32) {
+            updateStatus("Dogrulama bitti: oyun sanal ekrana yerlesmedi.")
             return
         }
-        if (gameDisplay != null) {
-            updateStatus("Oyun Display $gameDisplay'de, hedef $displayId. Tasma deneniyor...")
-        }
-        val taskId = gameTaskId
-            ?: Regex("""taskId=(\d+)""").find(dump)?.groupValues?.get(1)
-        if (taskId != null) {
-            updateStatus("Fallback goruldu($round), gorev $taskId sanal ekrana tasiniyor...")
-            // Tek gecerli tasma komutu: am display move-stack (moveRootTaskToDisplay).
-            // am task move-task mevcut degil, am stack move-task display tasimaz.
-            val move = ShizukuManager.exec("am display move-stack $taskId $displayId")
-            Log.i(TAG, "move-stack result: $move")
-            updateStatus("Tasima sonucu($round): ${move.take(180)}")
-            mainHandler.postDelayed({ verifyAndRecover(displayId, round + 10) }, 4000)
-        } else {
-            updateStatus("UYARI($round): Oyun sanal ekranda gorunmuyor, gorev bulunamadi.")
-        }
+        Thread {
+            val dump = ShizukuManager.exec("dumpsys activity activities")
+            Log.i(TAG, "Display $displayId verification dump (round $round): ${dump.take(2000)}")
+            var currentDisplay: Int? = null
+            var gameDisplay: Int? = null
+            var gameTaskId: String? = null
+            var pendingTaskId: String? = null
+            var pendingDisplay: Int? = null
+            for (rawLine in dump.lines()) {
+                val line = rawLine.trim()
+                Regex("""Display #(\d+)""").find(line)?.let {
+                    currentDisplay = it.groupValues[1].toIntOrNull()
+                    pendingTaskId = null
+                    pendingDisplay = null
+                }
+                val taskMatch = Regex("""Task\{[^}]*#(\d+)""").find(line)
+                if (taskMatch != null) {
+                    pendingTaskId = taskMatch.groupValues[1]
+                    pendingDisplay = Regex("""displayId=(\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull()
+                        ?: currentDisplay
+                }
+                if (line.contains(targetPackage) && (line.contains("Hist") || line.contains("packageName=") || line.contains("A="))) {
+                    gameDisplay = pendingDisplay ?: currentDisplay
+                    gameTaskId = pendingTaskId
+                    break
+                }
+            }
+            val taskId = gameTaskId
+                ?: Regex("""taskId=(\d+)""").find(dump)?.groupValues?.get(1)
+            mainHandler.post {
+                updateStatus("Dogrulama($round): ${dump.take(240)}")
+                if (gameDisplay == displayId) {
+                    updateStatus("OK: Oyun sanal ekranda (id=$displayId).")
+                    return@post
+                }
+                if (gameDisplay != null) {
+                    updateStatus("Oyun Display $gameDisplay'de, hedef $displayId. Tasma deneniyor...")
+                }
+                if (taskId != null) {
+                    updateStatus("Fallback goruldu($round), gorev $taskId sanal ekrana tasiniyor...")
+                    Thread {
+                        val move = ShizukuManager.exec("am display move-stack $taskId $displayId")
+                        Log.i(TAG, "move-stack result: $move")
+                        mainHandler.post {
+                            updateStatus("Tasima sonucu($round): ${move.take(180)}")
+                            mainHandler.postDelayed({ verifyAndRecover(displayId, round + 10) }, 4000)
+                        }
+                    }.start()
+                } else {
+                    updateStatus("UYARI($round): Oyun sanal ekranda gorunmuyor, gorev bulunamadi.")
+                }
+            }
+        }.start()
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -308,6 +332,9 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             ShizukuManager.exec("settings delete global force_resizable_activities")
         } else {
             ShizukuManager.exec("settings put global force_resizable_activities $prevForceResizable")
+        }
+        if (targetPackage.isNotEmpty()) {
+            ShizukuManager.exec("am compat disable FORCE_RESIZE_APP $targetPackage")
         }
         settingsBackedUp = false
         Log.i(TAG, "Restored globals to backed-up values.")
@@ -344,6 +371,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun onDestroy() {
         super.onDestroy()
+        mainHandler.removeCallbacksAndMessages(null)
         releaseShellDisplay()
         destroyShellService()
     }
