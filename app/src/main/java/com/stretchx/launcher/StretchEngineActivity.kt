@@ -180,6 +180,9 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
             return
         }
+        ShizukuManager.exec("settings put global force_resizable_activities 1")
+        ShizukuManager.exec("settings put global enable_freeform_support 1")
+        ShizukuManager.exec("cmd activity set-force-resizable $targetPackage true")
         val cmd = "am start --display $displayId -a android.intent.action.MAIN -c android.intent.category.LAUNCHER --activity-single-top -n $effectiveComponent"
         Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
         val result = ShizukuManager.exec(cmd)
