@@ -155,6 +155,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                     return@post
                 }
                 launchAttempted = true
+                directGameComponent = null
                 updateStatus("Sanal ekran hazir (id=$id). Oyun firlatiliyor...")
                 launchTargetGameOnVirtualDisplay(id)
             } catch (e: Throwable) {
@@ -186,7 +187,6 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         ShizukuManager.exec("am compat enable 174042936 $targetPackage")
         ShizukuManager.exec("am force-stop $targetPackage")
         val cmd = "am start --user current --display $displayId -f 0x18000000 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $effectiveComponent"
-        Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
         var result = try {
             val svc = stretchService
             if (svc != null) {
@@ -197,6 +197,11 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         } catch (e: Throwable) {
             Log.e(TAG, "Programmatic launch failed, falling back to am", e)
             ShizukuManager.exec(cmd)
+        }
+        if (result.startsWith("ERR")) {
+            Log.w(TAG, "Programmatic launch returned error, falling back to am: $result")
+            updateStatus("Programatik ret, am deneniyor: ${result.take(120)}")
+            result = ShizukuManager.exec(cmd)
         }
         Log.i(TAG, "Launch result: $result")
         updateStatus("Oyun baslatma: ${result.take(180)}")
