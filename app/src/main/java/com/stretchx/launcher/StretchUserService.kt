@@ -118,6 +118,38 @@ class StretchUserService : IStretchService.Stub {
     }
 
     @Throws(RemoteException::class)
+    override fun launchOnDisplay(displayId: Int, packageName: String?, component: String?): String {
+        return try {
+            val context = resolveContext()
+                ?: return "ERR: no Context in shell process"
+            val shellContext = ShellPackageContext(context)
+            val comp = component?.takeIf { it.contains("/") }
+                ?: return "ERR: empty component"
+            val pkg = packageName?.takeIf { it.isNotEmpty() }
+                ?: comp.substringBefore("/")
+            val cls = comp.substringAfter("/")
+            val intent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+                addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+                setClassName(pkg, cls)
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+            }
+            val options = android.app.ActivityOptions.makeBasic().apply {
+                setLaunchDisplayId(displayId)
+            }
+            shellContext.startActivity(intent, options.toBundle())
+            "OK: startActivity $comp display=$displayId"
+        } catch (e: SecurityException) {
+            lastError = "launchOnDisplay denied: ${e.message}"
+            Log.e(TAG, lastError, e)
+            "ERR SecurityException: ${e.message}"
+        } catch (e: Throwable) {
+            lastError = "launchOnDisplay failed: ${e.javaClass.simpleName}: ${e.message}"
+            Log.e(TAG, lastError, e)
+            "ERR ${e.javaClass.simpleName}: ${e.message}"
+        }
+    }
+
+    @Throws(RemoteException::class)
     override fun destroy() {
         releaseShellDisplay()
         System.exit(0)

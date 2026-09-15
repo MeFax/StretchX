@@ -9,5 +9,6 @@ interface IStretchService {
     String getLastError() = 4;
     String getLastFlags() = 5;
     String getContextSource() = 6;
+    String launchOnDisplay(int displayId, String packageName, String component) = 7;
     void destroy() = 16777114;
 }

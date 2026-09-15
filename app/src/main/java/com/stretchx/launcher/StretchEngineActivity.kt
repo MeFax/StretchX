@@ -187,13 +187,19 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         ShizukuManager.exec("am force-stop $targetPackage")
         val cmd = "am start --user current --display $displayId -f 0x18000000 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $effectiveComponent"
         Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
-        val result = ShizukuManager.exec(cmd)
+        var result = try {
+            val svc = stretchService
+            if (svc != null) {
+                svc.launchOnDisplay(displayId, targetPackage, effectiveComponent)
+            } else {
+                ShizukuManager.exec(cmd)
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Programmatic launch failed, falling back to am", e)
+            ShizukuManager.exec(cmd)
+        }
         Log.i(TAG, "Launch result: $result")
         updateStatus("Oyun baslatma: ${result.take(180)}")
-        if (result.contains("Error", ignoreCase = true) || result.contains("Exception", ignoreCase = true) || result.startsWith("ERR")) {
-            updateStatus("HATA: fırlatma reddedildi, komut cıktısı yukarıda.")
-            return
-        }
         // Wrapper/splash -> gercek aktivite hop'u icin iki asamali dogrulama.
         mainHandler.postDelayed({ verifyAndRecover(displayId, 1) }, 2500)
         mainHandler.postDelayed({ verifyAndRecover(displayId, 2) }, 7000)
