@@ -209,31 +209,44 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun verifyAndRecover(displayId: Int, round: Int) {
-        val dump = ShizukuManager.exec("dumpsys activity activities | grep -B4 -A4 '$targetPackage'")
+        val dump = ShizukuManager.exec("dumpsys activity activities | grep -B12 -A3 '$targetPackage'")
         Log.i(TAG, "Display $displayId verification dump (round $round): $dump")
         updateStatus("Dogrulama($round): ${dump.take(240)}")
-        // displayId Task header'da, paket Hist satirinda ayri satirlardadir;
-        // -B4 -A4 penceresi icinde ikisi de varsa ayni gorev blogundayiz demektir.
-        val windowHasDisplay = dump.contains("displayId=$displayId")
-        val windowHasPkg = dump.contains(targetPackage)
-        if (windowHasDisplay && windowHasPkg) {
-            updateStatus("OK: Oyun sanal ekranda (id=$displayId).")
-            return
+        // dumpsys yapisi: "Display #N" basligi altinda Task bloklari; taskId Task satirinda,
+        // paket Hist satirinda. grep -B12 -A3 Display basligini keseceginden bolum bazinda
+        // kontrol yerine: ayni Task blogu icinde hem paket hem dogru displayId aranir.
+        val taskBlocks = dump.split(Regex("(?=Task\\{|taskId=)"))
+        val gameBlock = taskBlocks.firstOrNull { it.contains(targetPackage) }
+        if (gameBlock != null) {
+            val blockHasTargetDisplay = gameBlock.contains("displayId=$displayId") ||
+                    Regex("""Display #${displayId}\b""").containsMatchIn(gameBlock)
+            if (blockHasTargetDisplay) {
+                updateStatus("OK: Oyun sanal ekranda (id=$displayId).")
+                return
+            }
+            val blockDisplay = Regex("""displayId=(\d+)""").find(gameBlock)?.groupValues?.get(1)
+                ?: Regex("""Display #(\d+)""").find(gameBlock)?.groupValues?.get(1)
+            if (blockDisplay != null) {
+                updateStatus("Oyun Display $blockDisplay'de, hedef $displayId. Tasma deneniyor...")
+            }
         }
-        val taskId = Regex("""taskId=(\d+)""").findAll(dump)
-            .map { it.groupValues[1] }
-            .firstOrNull()
-            ?: Regex("""Task\{[^}]*#(\d+)""").find(dump)?.groupValues?.get(1)
-            ?: Regex("""#(\d+):""").find(dump)?.groupValues?.get(1)
+        val scope = gameBlock ?: dump
+        val taskId = Regex("""taskId=(\d+)""").find(scope)?.groupValues?.get(1)
+            ?: Regex("""Task\{[^}]*#(\d+)""").find(scope)?.groupValues?.get(1)
         if (taskId != null) {
             updateStatus("Fallback goruldu($round), gorev $taskId sanal ekrana tasiniyor...")
-            // am stack move-task Android 10+'da kaldirildi; once modern komut, olmazsa legacy dene.
-            var move = ShizukuManager.exec("am task move-task $taskId $displayId")
+            // Android 14/15: "am display move-stack" -> moveRootTaskToDisplay cagirir.
+            // Eski "am stack move-task" kaldirildi; sirayla dene, sonucu ekrana bas.
+            var move = ShizukuManager.exec("am display move-stack $taskId $displayId")
+            if (move.contains("Unknown command", ignoreCase = true) || move.contains("Unknown cmd", ignoreCase = true) || move.contains("Error", ignoreCase = true)) {
+                move = ShizukuManager.exec("am task move-task $taskId $displayId")
+            }
             if (move.contains("Unknown command", ignoreCase = true) || move.contains("Unknown cmd", ignoreCase = true)) {
                 move = ShizukuManager.exec("am stack move-task $taskId $displayId")
             }
             Log.i(TAG, "move-task result: $move")
             updateStatus("Tasima sonucu($round): ${move.take(180)}")
+            mainHandler.postDelayed({ verifyAndRecover(displayId, round + 10) }, 4000)
         } else {
             updateStatus("UYARI($round): Oyun sanal ekranda gorunmuyor, gorev bulunamadi.")
         }
