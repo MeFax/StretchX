@@ -46,6 +46,9 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var serviceConnection: ServiceConnection? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var launchAttempted = false
+    private var prevFreeform: String? = null
+    private var prevForceResizable: String? = null
+    private var settingsBackedUp = false
     private val statusLines = ArrayDeque<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -176,6 +179,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
             return
         }
+        backupGlobalSettings()
         ShizukuManager.exec("settings put global enable_freeform_support 1")
         ShizukuManager.exec("settings put global force_resizable_activities 1")
         ShizukuManager.exec("am force-stop $targetPackage")
@@ -262,6 +266,31 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         releaseShellDisplay()
     }
 
+
+    private fun backupGlobalSettings() {
+        if (settingsBackedUp) return
+        prevFreeform = ShizukuManager.exec("settings get global enable_freeform_support").takeIf { !it.startsWith("ERR") }
+        prevForceResizable = ShizukuManager.exec("settings get global force_resizable_activities").takeIf { !it.startsWith("ERR") }
+        settingsBackedUp = true
+        Log.i(TAG, "Backed up globals: freeform=$prevFreeform forceResizable=$prevForceResizable")
+    }
+
+    private fun restoreGlobalSettings() {
+        if (!settingsBackedUp) return
+        if (prevFreeform.isNullOrEmpty() || prevFreeform == "null") {
+            ShizukuManager.exec("settings delete global enable_freeform_support")
+        } else {
+            ShizukuManager.exec("settings put global enable_freeform_support $prevFreeform")
+        }
+        if (prevForceResizable.isNullOrEmpty() || prevForceResizable == "null") {
+            ShizukuManager.exec("settings delete global force_resizable_activities")
+        } else {
+            ShizukuManager.exec("settings put global force_resizable_activities $prevForceResizable")
+        }
+        settingsBackedUp = false
+        Log.i(TAG, "Restored globals to backed-up values.")
+    }
+
     private fun releaseShellDisplay() {
         try {
             stretchService?.releaseDisplay()
@@ -270,6 +299,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
         shellDisplayId = -1
         launchAttempted = false
+        restoreGlobalSettings()
     }
 
     private fun destroyShellService() {
