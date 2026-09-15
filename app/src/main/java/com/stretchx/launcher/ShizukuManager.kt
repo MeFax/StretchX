@@ -73,12 +73,19 @@ object ShizukuManager {
             ) as Process
 
             val reader = BufferedReader(InputStreamReader(process.inputStream))
+            val errReader = BufferedReader(InputStreamReader(process.errorStream))
             val sb = StringBuilder()
             var line: String?
             while (reader.readLine().also { line = it } != null) {
                 sb.append(line).append("\n")
             }
-            process.waitFor()
+            while (errReader.readLine().also { line = it } != null) {
+                sb.append("[ERR] ").append(line).append("\n")
+            }
+            val code = process.waitFor()
+            if (code != 0) {
+                sb.append("[EXIT=").append(code).append("]\n")
+            }
             sb.toString().trim()
         } catch (e: Throwable) {
             "ERR: ${e.message}"

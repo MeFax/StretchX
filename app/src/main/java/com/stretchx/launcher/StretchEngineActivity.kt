@@ -1,18 +1,17 @@
 package com.stretchx.launcher
 
 import android.annotation.SuppressLint
-import android.content.ComponentName
 import android.content.ServiceConnection
 import android.content.pm.ActivityInfo
 import android.graphics.PixelFormat
 import android.os.Bundle
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -47,6 +46,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var serviceConnection: ServiceConnection? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var launchAttempted = false
+    private val statusLines = ArrayDeque<String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,12 +72,28 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
 
         setupTouchRouting()
+        updateStatus("1/4 Shizuku shell servisine baglaniliyor...")
         ShellDisplayManager.bind(this) { service ->
             stretchService = service
+            updateStatus("2/4 Shell servisi baglandi (UID 2000).")
             tryCreateShellDisplay()
         }.also {
             userServiceArgs = it.first
             serviceConnection = it.second
+        }
+        mainHandler.postDelayed({
+            if (shellDisplayId <= 0 && !isFinishing) {
+                updateStatus("HATA: Sanal ekran acilamadi. Shizuku calisiyor mu, izin verildi mi?")
+            }
+        }, 9000)
+    }
+
+    private fun updateStatus(msg: String) {
+        Log.i(TAG, msg)
+        mainHandler.post {
+            statusLines.addLast(msg)
+            while (statusLines.size > 6) statusLines.removeFirst()
+            binding.tvStretchStatus.text = statusLines.joinToString("\n")
         }
     }
 
@@ -107,6 +123,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         Log.i(TAG, "Surface created ${holder.surfaceFrame.width()}x${holder.surfaceFrame.height()}. Requesting shell-owned 4:3 display.")
+        updateStatus("Yuzey hazir. Sanal ekran isteniyor...")
         pendingSurface = holder.surface
         tryCreateShellDisplay()
     }
@@ -115,6 +132,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val surface = pendingSurface ?: return
         val service = stretchService ?: return
         if (shellDisplayId > 0 || launchAttempted) return
+        updateStatus("3/4 Sanal ekran aciliyor ${virtWidth}x${virtHeight}...")
         mainHandler.post {
             try {
                 val id = service.createDisplay(virtWidth, virtHeight, virtDensity, surface)
@@ -122,11 +140,14 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 Log.i(TAG, "Shell-owned VirtualDisplay id=$id ${virtWidth}x${virtHeight}@${virtDensity}dpi")
                 if (id > 0 && targetPackage.isNotEmpty()) {
                     launchAttempted = true
+                    updateStatus("Sanal ekran hazir (id=$id). Oyun firlatiliyor...")
                     launchTargetGameOnVirtualDisplay(id)
                 } else if (id <= 0) {
+                    updateStatus("HATA: createDisplay id=$id dondu.")
                     Log.e(TAG, "Shell createDisplay returned invalid id=$id")
                 }
             } catch (e: Throwable) {
+                updateStatus("HATA: Sanal ekran IPC basarisiz: ${e.message}")
                 Log.e(TAG, "Shell createDisplay IPC failed", e)
             }
         }
@@ -147,14 +168,16 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             }
         }
         if (effectiveComponent.isNullOrEmpty()) {
+            updateStatus("HATA: Oyun aktivitesi cozulemedi, baslatma iptal.")
             Log.e(TAG, "Launch ABORTED: no concrete component for $targetPackage. Refusing silent Display 0 fallback.")
-            android.widget.Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", android.widget.Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
             return
         }
         val cmd = "am start --display $displayId -n $effectiveComponent"
         Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
         val result = ShizukuManager.exec(cmd)
         Log.i(TAG, "Launch result: $result")
+        updateStatus("Baslatma sonucu: ${result.take(180)}")
         mainHandler.postDelayed({
             verifyGameOnDisplay(displayId)
         }, 2500)
@@ -163,6 +186,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun verifyGameOnDisplay(displayId: Int) {
         val dump = ShizukuManager.exec("dumpsys activity activities | grep -E 'displayId=$displayId|topResumedActivity'")
         Log.i(TAG, "Display $displayId verification dump: $dump")
+        updateStatus("Dogrulama: ${dump.take(240)}")
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {

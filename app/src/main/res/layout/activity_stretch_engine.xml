@@ -22,4 +22,18 @@
         android:contentDescription="Exit"
         android:alpha="0.4" />
 
+    <!-- On-screen diagnostics: every pipeline step prints here so failures are visible -->
+    <TextView
+        android:id="@+id/tvStretchStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|start"
+        android:layout_margin="12dp"
+        android:background="#99000000"
+        android:padding="8dp"
+        android:text="StretchX başlatılıyor..."
+        android:textColor="@color/neon_cyan"
+        android:textSize="11sp"
+        android:maxLines="8" />
+
 </FrameLayout>
