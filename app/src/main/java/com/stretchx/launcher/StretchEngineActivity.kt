@@ -138,14 +138,21 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 val id = service.createDisplay(virtWidth, virtHeight, virtDensity, surface)
                 shellDisplayId = id
                 Log.i(TAG, "Shell-owned VirtualDisplay id=$id ${virtWidth}x${virtHeight}@${virtDensity}dpi")
-                if (id > 0 && targetPackage.isNotEmpty()) {
-                    launchAttempted = true
-                    updateStatus("Sanal ekran hazir (id=$id). Oyun firlatiliyor...")
-                    launchTargetGameOnVirtualDisplay(id)
-                } else if (id <= 0) {
-                    updateStatus("HATA: createDisplay id=$id dondu.")
-                    Log.e(TAG, "Shell createDisplay returned invalid id=$id")
+                if (id <= 0) {
+                    val err = try { service.lastError } catch (_: Throwable) { "" }
+                    val flags = try { service.lastFlags } catch (_: Throwable) { "" }
+                    val ctx = try { service.contextSource } catch (_: Throwable) { "" }
+                    updateStatus("HATA: createDisplay id=$id. Bayrak=$flags | Baglam=$ctx | Hata=$err")
+                    Log.e(TAG, "Shell createDisplay failed id=$id flags=$flags ctx=$ctx err=$err")
+                    return@post
                 }
+                if (targetPackage.isEmpty()) {
+                    updateStatus("HATA: Hedef paket bos.")
+                    return@post
+                }
+                launchAttempted = true
+                updateStatus("Sanal ekran hazir (id=$id). Oyun firlatiliyor...")
+                launchTargetGameOnVirtualDisplay(id)
             } catch (e: Throwable) {
                 updateStatus("HATA: Sanal ekran IPC basarisiz: ${e.message}")
                 Log.e(TAG, "Shell createDisplay IPC failed", e)
@@ -173,16 +180,24 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
             return
         }
-        val cmd = "am start --display $displayId -n $effectiveComponent"
-        Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
-        val result = ShizukuManager.exec(cmd)
-        Log.i(TAG, "Launch result: $result")
-        updateStatus("Baslatma sonucu: ${result.take(180)}")
+        // Once: Settings smoke testi — altyapi mi yoksa oyunun display reddi mi?
+        updateStatus("Altyapi testi: Ayarlar sanal ekrana aciliyor...")
+        val smoke = ShizukuManager.exec("am start --display $displayId -n com.android.settings/.Settings")
+        Log.i(TAG, "Settings smoke result: $smoke")
+        updateStatus("Ayarlar testi: ${smoke.take(180)}")
+        updateStatus("5 sn icinde Ayarlar gorunurse altyapi OK, sonra oyun acilacak.")
+        val component = effectiveComponent
         mainHandler.postDelayed({
-            verifyGameOnDisplay(displayId)
-        }, 2500)
+            val cmd = "am start --display $displayId -n $component"
+            Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
+            val result = ShizukuManager.exec(cmd)
+            Log.i(TAG, "Launch result: $result")
+            updateStatus("Oyun baslatma: ${result.take(180)}")
+            mainHandler.postDelayed({
+                verifyGameOnDisplay(displayId)
+            }, 2500)
+        }, 5000)
     }
-
     private fun verifyGameOnDisplay(displayId: Int) {
         val dump = ShizukuManager.exec("dumpsys activity activities | grep -E 'displayId=$displayId|topResumedActivity'")
         Log.i(TAG, "Display $displayId verification dump: $dump")
