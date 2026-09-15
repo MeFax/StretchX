@@ -1,24 +1,25 @@
 package com.stretchx.launcher
 
 import android.annotation.SuppressLint
-import android.content.Context
+import android.content.ComponentName
+import android.content.ServiceConnection
 import android.content.pm.ActivityInfo
 import android.graphics.PixelFormat
-import android.hardware.display.DisplayManager
-import android.hardware.display.VirtualDisplay
-import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
 import android.util.Log
+import android.view.Surface
 import android.view.SurfaceHolder
-import android.view.View
-import android.view.WindowInsets
-import android.view.WindowInsetsController
 import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.stretchx.launcher.databinding.ActivityStretchEngineBinding
+import rikka.shizuku.Shizuku
+import rikka.shizuku.Shizuku.UserServiceArgs
 
 class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
@@ -32,14 +33,20 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private lateinit var binding: ActivityStretchEngineBinding
-    private var virtualDisplay: VirtualDisplay? = null
-    private var virtualDisplayId: Int = -1
+    private var shellDisplayId: Int = -1
 
     private var targetPackage: String = ""
     private var targetComponent: String? = null
     private var virtWidth: Int = 1920
     private var virtHeight: Int = 1440
     private var virtDensity: Int = 440
+
+    private var pendingSurface: Surface? = null
+    private var stretchService: IStretchService? = null
+    private var userServiceArgs: UserServiceArgs? = null
+    private var serviceConnection: ServiceConnection? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var launchAttempted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,6 +72,13 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         }
 
         setupTouchRouting()
+        ShellDisplayManager.bind(this) { service ->
+            stretchService = service
+            tryCreateShellDisplay()
+        }.also {
+            userServiceArgs = it.first
+            serviceConnection = it.second
+        }
     }
 
     private fun hideSystemUI() {
@@ -77,45 +91,44 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     @SuppressLint("ClickableViewAccessibility")
     private fun setupTouchRouting() {
         binding.surfaceStretch.setOnTouchListener { view, event ->
-            if (virtualDisplayId <= 0) return@setOnTouchListener false
+            if (shellDisplayId <= 0) return@setOnTouchListener false
 
             val surfaceWidth = view.width.toFloat()
             val surfaceHeight = view.height.toFloat()
             if (surfaceWidth <= 0 || surfaceHeight <= 0) return@setOnTouchListener false
 
-            // Compute non-uniform scale factors:
-            // S25 Ultra physical width (e.g. 3120) -> Virtual display width (1920)
             val scaleX = virtWidth.toFloat() / surfaceWidth
             val scaleY = virtHeight.toFloat() / surfaceHeight
 
-            InputInjector.injectScaledTouch(event, virtualDisplayId, scaleX, scaleY)
+            InputInjector.injectScaledTouch(event, shellDisplayId, scaleX, scaleY)
             true
         }
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        Log.i(TAG, "Surface created. Initializing 4:3 Virtual Display: ${virtWidth}x${virtHeight} @ ${virtDensity} DPI")
-        val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        Log.i(TAG, "Surface created ${holder.surfaceFrame.width()}x${holder.surfaceFrame.height()}. Requesting shell-owned 4:3 display.")
+        pendingSurface = holder.surface
+        tryCreateShellDisplay()
+    }
 
-        try {
-            val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
-            virtualDisplay = displayManager.createVirtualDisplay(
-                "StretchX_43_Display",
-                virtWidth,
-                virtHeight,
-                virtDensity,
-                holder.surface,
-                flags
-            )
-
-            virtualDisplayId = virtualDisplay?.display?.displayId ?: -1
-            Log.i(TAG, "Virtual Display created successfully with ID: $virtualDisplayId")
-
-            if (virtualDisplayId > 0 && targetPackage.isNotEmpty()) {
-                launchTargetGameOnVirtualDisplay(virtualDisplayId)
+    private fun tryCreateShellDisplay() {
+        val surface = pendingSurface ?: return
+        val service = stretchService ?: return
+        if (shellDisplayId > 0 || launchAttempted) return
+        mainHandler.post {
+            try {
+                val id = service.createDisplay(virtWidth, virtHeight, virtDensity, surface)
+                shellDisplayId = id
+                Log.i(TAG, "Shell-owned VirtualDisplay id=$id ${virtWidth}x${virtHeight}@${virtDensity}dpi")
+                if (id > 0 && targetPackage.isNotEmpty()) {
+                    launchAttempted = true
+                    launchTargetGameOnVirtualDisplay(id)
+                } else if (id <= 0) {
+                    Log.e(TAG, "Shell createDisplay returned invalid id=$id")
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Shell createDisplay IPC failed", e)
             }
-        } catch (e: Throwable) {
-            Log.e(TAG, "Error creating virtual display", e)
         }
     }
 
@@ -123,11 +136,19 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val cmd = if (!targetComponent.isNullOrEmpty()) {
             "am start --display $displayId -n $targetComponent"
         } else {
-            "monkey --display $displayId -p $targetPackage -c android.intent.category.LAUNCHER 1"
+            "monkey -p $targetPackage -c android.intent.category.LAUNCHER 1"
         }
-        Log.i(TAG, "Launching game on virtual display [$displayId]: $cmd")
+        Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
         val result = ShizukuManager.exec(cmd)
         Log.i(TAG, "Launch result: $result")
+        mainHandler.postDelayed({
+            verifyGameOnDisplay(displayId)
+        }, 2500)
+    }
+
+    private fun verifyGameOnDisplay(displayId: Int) {
+        val dump = ShizukuManager.exec("dumpsys activity activities | grep -E 'displayId=$displayId|topResumedActivity'")
+        Log.i(TAG, "Display $displayId verification dump: $dump")
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -135,22 +156,33 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        Log.i(TAG, "Surface destroyed. Releasing Virtual Display.")
-        releaseVirtualDisplay()
+        Log.i(TAG, "Surface destroyed. Releasing shell-owned Virtual Display.")
+        pendingSurface = null
+        releaseShellDisplay()
     }
 
-    private fun releaseVirtualDisplay() {
+    private fun releaseShellDisplay() {
         try {
-            virtualDisplay?.release()
-            virtualDisplay = null
-            virtualDisplayId = -1
+            stretchService?.releaseDisplay()
         } catch (e: Throwable) {
-            Log.e(TAG, "Error releasing virtual display", e)
+            Log.e(TAG, "Error releasing shell display", e)
         }
+        shellDisplayId = -1
+        launchAttempted = false
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        releaseVirtualDisplay()
+        releaseShellDisplay()
+        try {
+            val args = userServiceArgs
+            val conn = serviceConnection
+            if (args != null && conn != null) {
+                Shizuku.unbindUserService(args, conn, true)
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "unbindUserService failed", e)
+        }
+        stretchService = null
     }
 }

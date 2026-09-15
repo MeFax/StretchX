@@ -48,6 +48,12 @@
                 android:value="Game resolution watchdog and auto recovery" />
         </service>
 
+        <!-- Shizuku UserService: runs as UID 2000 (shell), creates PUBLIC+TRUSTED display -->
+        <service
+            android:name=".StretchUserService"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":stretch_shell" />
         <!-- Floating Fail-Safe Overlay -->
         <service
             android:name=".FloatingOverlayService"
