@@ -190,6 +190,10 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val result = ShizukuManager.exec(cmd)
         Log.i(TAG, "Launch result: $result")
         updateStatus("Oyun baslatma: ${result.take(180)}")
+        if (result.contains("Error", ignoreCase = true) || result.contains("Exception", ignoreCase = true) || result.startsWith("ERR")) {
+            updateStatus("HATA: fırlatma reddedildi, komut cıktısı yukarıda.")
+            return
+        }
         // Wrapper/splash -> gercek aktivite hop'u icin iki asamali dogrulama.
         mainHandler.postDelayed({ verifyAndRecover(displayId, 1) }, 2500)
         mainHandler.postDelayed({ verifyAndRecover(displayId, 2) }, 7000)
