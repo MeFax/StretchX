@@ -76,6 +76,23 @@ class StretchUserService : IStretchService.Stub {
     private class ShellPackageContext(base: Context) : ContextWrapper(base) {
         override fun getPackageName(): String = SHELL_PACKAGE
         override fun getOpPackageName(): String = SHELL_PACKAGE
+
+        override fun getSystemService(name: String): Any? {
+            if (Context.DISPLAY_SERVICE == name) {
+                // DisplayManager'i base'den degil, bu wrapper uzerinden kur ki
+                // DisplayManagerGlobal icine spoof edilmis paket adi islesin.
+                return try {
+                    val ctor = DisplayManager::class.java.getDeclaredConstructor(Context::class.java).apply {
+                        isAccessible = true
+                    }
+                    ctor.newInstance(this)
+                } catch (e: Throwable) {
+                    Log.e(TAG, "DisplayManager reflection failed, falling back to base", e)
+                    super.getSystemService(name)
+                }
+            }
+            return super.getSystemService(name)
+        }
     }
 
     @Throws(RemoteException::class)
