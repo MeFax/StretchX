@@ -32,6 +32,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private lateinit var binding: ActivityStretchEngineBinding
+    @Volatile
     private var shellDisplayId: Int = -1
 
     private var targetPackage: String = ""
@@ -46,6 +47,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private var userServiceArgs: UserServiceArgs? = null
     private var serviceConnection: ServiceConnection? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    @Volatile
     private var launchAttempted = false
     private var prevFreeform: String? = null
     private var prevForceResizable: String? = null
@@ -135,13 +137,18 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun tryCreateShellDisplay() {
         val surface = pendingSurface ?: return
         val service = stretchService ?: return
+        // Cagri noktalari (surfaceCreated + bind callback) main thread'de kosar:
+        // kontrol + set ayni thread'de atomik, ikinci cagri duplicate display acamaz.
         if (shellDisplayId > 0 || launchAttempted) return
         launchAttempted = true
-        updateStatus("3/4 Sanal ekran aciliyor ${virtWidth}x${virtHeight}...")
+        val w = virtWidth
+        val h = virtHeight
+        val d = virtDensity
+        updateStatus("3/4 Sanal ekran aciliyor ${w}x${h}...")
         Thread {
             try {
-                val id = service.createDisplay(virtWidth, virtHeight, virtDensity, surface)
-                Log.i(TAG, "Shell-owned VirtualDisplay id=$id ${virtWidth}x${virtHeight}@${virtDensity}dpi")
+                val id = service.createDisplay(w, h, d, surface)
+                Log.i(TAG, "Shell-owned VirtualDisplay id=$id ${w}x${h}@${d}dpi")
                 val err = if (id <= 0) { try { service.lastError } catch (_: Throwable) { "" } } else ""
                 val flags = if (id <= 0) { try { service.lastFlags } catch (_: Throwable) { "" } } else ""
                 val ctx = if (id <= 0) { try { service.contextSource } catch (_: Throwable) { "" } } else ""
