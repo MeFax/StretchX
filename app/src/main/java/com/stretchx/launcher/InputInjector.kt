@@ -4,9 +4,9 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
 import android.view.InputEvent
-import android.view.MotionEvent
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuBinderWrapper
+import rikka.shizuku.SystemServiceHelper
 import java.lang.reflect.Method
 
 object InputInjector {
@@ -31,7 +31,7 @@ object InputInjector {
         if (!ShizukuManager.hasPermission()) return
 
         try {
-            val binder: IBinder? = Shizuku.getSystemService("input")
+            val binder: IBinder? = SystemServiceHelper.getSystemService("input")
             if (binder != null && binder.pingBinder()) {
                 val wrappedBinder = ShizukuBinderWrapper(binder)
                 val stubClass = Class.forName("android.hardware.input.IInputManager\$Stub")
