@@ -187,15 +187,27 @@
         android:orientation="vertical"
         app:layout_constraintBottom_toBottomOf="parent">
 
+        <!-- Virtual Display Hardware Stretch Engine (Zero Black Bars) -->
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnLaunchVirtual"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:background="@drawable/bg_button"
+            android:text="@string/btn_launch_virtual"
+            android:textColor="@color/black"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <!-- Legacy System Level wm size Override -->
         <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btnLaunchGame"
             android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:background="@drawable/bg_button"
-            android:text="@string/btn_launch"
-            android:textColor="@color/black"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+            android:layout_height="44dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_card"
+            android:text="@string/btn_launch_wm"
+            android:textColor="@color/text_primary"
+            android:textSize="12sp" />
 
         <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btnEmergencyReset"

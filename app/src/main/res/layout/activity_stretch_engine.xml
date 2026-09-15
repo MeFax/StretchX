@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/black">
+
+    <!-- Fullscreen Hardware Surface stretching 4:3 virtual display to full 3120x1440 AMOLED panel -->
+    <SurfaceView
+        android:id="@+id/surfaceStretch"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Minimal exit button in top right corner -->
+    <ImageButton
+        android:id="@+id/btnExitStretch"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="12dp"
+        android:background="@drawable/bg_floating"
+        android:src="@android:drawable/ic_menu_close_clear_cancel"
+        android:contentDescription="Exit"
+        android:alpha="0.4" />
+
+</FrameLayout>

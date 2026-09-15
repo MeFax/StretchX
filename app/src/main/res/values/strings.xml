@@ -9,7 +9,8 @@
     <string name="preset_4_3_fps">4:3 Yüksek FPS (1080x1440 @ 360 DPI)</string>
     <string name="preset_16_10">16:10 Tablet Geniş (1440x2304 @ 480 DPI)</string>
     <string name="preset_custom">Özel Çözünürlük</string>
-    <string name="btn_launch">OYUNU BAŞLAT VE TAM EKRAN GER</string>
+    <string name="btn_launch_virtual">SANAL EKRAN İLE GER (%100 SIFIR SİYAH BAR)</string>
+    <string name="btn_launch_wm">SİSTEM DÜZEYİ BOYUTLANDIR (wm size)</string>
     <string name="btn_emergency_reset">EKRANI SIFIRLA (RESET)</string>
     <string name="label_detected_games">Desteklenen Oyunlar</string>
     <string name="overlay_active">Stretch Aktif (4:3)</string>

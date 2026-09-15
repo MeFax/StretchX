@@ -178,6 +178,36 @@ class MainActivity : AppCompatActivity() {
                 checkOverlayPermission()
             }
         }
+        binding.btnLaunchVirtual.setOnClickListener {
+            val selectedGame = gameAdapter?.getSelectedGame()
+            if (selectedGame == null) {
+                Toast.makeText(this, "Lütfen bir oyun seçin.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (!ShizukuManager.hasPermission()) {
+                Toast.makeText(this, "Lütfen önce Shizuku yetkisini onaylayın!", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+
+            val preset = when {
+                binding.rb43Fps.isChecked -> DisplayOptimizer.PRESET_4_3_FPS
+                binding.rb1610.isChecked -> DisplayOptimizer.PRESET_16_10
+                else -> DisplayOptimizer.PRESET_4_3_ULTRA
+            }
+
+            val launchIntent = packageManager.getLaunchIntentForPackage(selectedGame.packageName)
+            val componentStr = launchIntent?.component?.flattenToString()
+
+            val intent = Intent(this, StretchEngineActivity::class.java).apply {
+                putExtra(StretchEngineActivity.EXTRA_TARGET_PACKAGE, selectedGame.packageName)
+                putExtra(StretchEngineActivity.EXTRA_TARGET_COMPONENT, componentStr)
+                putExtra(StretchEngineActivity.EXTRA_VIRT_WIDTH, preset.portraitHeight)
+                putExtra(StretchEngineActivity.EXTRA_VIRT_HEIGHT, preset.portraitWidth)
+                putExtra(StretchEngineActivity.EXTRA_VIRT_DENSITY, preset.density)
+            }
+            startActivity(intent)
+        }
 
         binding.btnLaunchGame.setOnClickListener {
             val selectedGame = gameAdapter?.getSelectedGame()

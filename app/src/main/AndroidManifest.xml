@@ -29,6 +29,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Fullscreen Hardware Stretch Renderer Activity (Zero Black Bars) -->
+        <activity
+            android:name=".StretchEngineActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:hardwareAccelerated="true"
+            android:theme="@style/Theme.StretchX" />
 
         <!-- Zero-Latency Watchdog Service -->
         <service
