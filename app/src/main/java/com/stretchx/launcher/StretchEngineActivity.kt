@@ -98,7 +98,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
 
         try {
-            val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
+            val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
             virtualDisplay = displayManager.createVirtualDisplay(
                 "StretchX_43_Display",
                 virtWidth,
