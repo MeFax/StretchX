@@ -163,15 +163,11 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     private fun launchTargetGameOnVirtualDisplay(displayId: Int) {
         var effectiveComponent = targetComponent
         if (effectiveComponent.isNullOrEmpty()) {
-            effectiveComponent = try {
-                packageManager.getLaunchIntentForPackage(targetPackage)?.component?.flattenToString()
-            } catch (e: Throwable) {
-                Log.e(TAG, "Component resolve failed for $targetPackage", e)
-                null
-            }
+            effectiveComponent = resolveRealActivity(targetPackage)
             if (!effectiveComponent.isNullOrEmpty()) {
                 targetComponent = effectiveComponent
                 Log.i(TAG, "Resolved component for $targetPackage: $effectiveComponent")
+                updateStatus("Aktivite: $effectiveComponent")
             }
         }
         if (effectiveComponent.isNullOrEmpty()) {
@@ -180,23 +176,42 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
             return
         }
-        ShizukuManager.exec("settings put global force_resizable_activities 1")
         ShizukuManager.exec("settings put global enable_freeform_support 1")
-        ShizukuManager.exec("cmd activity set-force-resizable $targetPackage true")
+        ShizukuManager.exec("settings put secure force_resizable_activities 1")
         val cmd = "am start --display $displayId -a android.intent.action.MAIN -c android.intent.category.LAUNCHER --activity-single-top -n $effectiveComponent"
         Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
         val result = ShizukuManager.exec(cmd)
         Log.i(TAG, "Launch result: $result")
         updateStatus("Oyun baslatma: ${result.take(180)}")
-        mainHandler.postDelayed({
-            verifyAndRecover(displayId)
-        }, 2500)
+        // Wrapper/splash -> gercek aktivite hop'u icin iki asamali dogrulama.
+        mainHandler.postDelayed({ verifyAndRecover(displayId, 1) }, 2500)
+        mainHandler.postDelayed({ verifyAndRecover(displayId, 2) }, 7000)
     }
 
-    private fun verifyAndRecover(displayId: Int) {
+    private fun resolveRealActivity(pkg: String): String? {
+        // 1. Sistem cozucuye sor (wrapper alias degil, gercek hedef).
+        val viaCmd = ShizukuManager.exec("cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $pkg")
+        Log.i(TAG, "resolve-activity dump: $viaCmd")
+        val component = viaCmd.lines()
+            .map { it.trim() }
+            .firstOrNull { it.contains("/") && !it.startsWith("package:") }
+        if (!component.isNullOrEmpty()) {
+            Log.i(TAG, "resolve-activity -> $component")
+            return component
+        }
+        // 2. Fallback: PackageManager launch intent.
+        return try {
+            packageManager.getLaunchIntentForPackage(pkg)?.component?.flattenToString()
+        } catch (e: Throwable) {
+            Log.e(TAG, "Component resolve failed for $pkg", e)
+            null
+        }
+    }
+
+    private fun verifyAndRecover(displayId: Int, round: Int) {
         val dump = ShizukuManager.exec("dumpsys activity activities | grep -B2 -A2 '$targetPackage'")
-        Log.i(TAG, "Display $displayId verification dump: $dump")
-        updateStatus("Dogrulama: ${dump.take(240)}")
+        Log.i(TAG, "Display $displayId verification dump (round $round): $dump")
+        updateStatus("Dogrulama($round): ${dump.take(240)}")
         val onTarget = dump.lines().any { it.contains("displayId=$displayId") && it.contains(targetPackage) }
         if (onTarget) {
             updateStatus("OK: Oyun sanal ekranda (id=$displayId).")
@@ -206,16 +221,16 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             .map { it.groupValues[1] }
             .firstOrNull()
         if (taskId != null) {
-            updateStatus("Fallback goruldu, gorev $taskId sanal ekrana tasiniyor...")
+            updateStatus("Fallback goruldu($round), gorev $taskId sanal ekrana tasiniyor...")
             // am stack move-task Android 10+'da kaldirildi; once modern komut, olmazsa legacy dene.
             var move = ShizukuManager.exec("am task move-task $taskId $displayId")
             if (move.contains("Unknown command", ignoreCase = true) || move.contains("Unknown cmd", ignoreCase = true)) {
                 move = ShizukuManager.exec("am stack move-task $taskId $displayId")
             }
             Log.i(TAG, "move-task result: $move")
-            updateStatus("Tasima sonucu: ${move.take(180)}")
+            updateStatus("Tasima sonucu($round): ${move.take(180)}")
         } else {
-            updateStatus("UYARI: Oyun sanal ekranda gorunmuyor, gorev bulunamadi.")
+            updateStatus("UYARI($round): Oyun sanal ekranda gorunmuyor, gorev bulunamadi.")
         }
     }
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
