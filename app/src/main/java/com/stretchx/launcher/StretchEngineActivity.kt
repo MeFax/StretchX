@@ -177,8 +177,9 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             return
         }
         ShizukuManager.exec("settings put global enable_freeform_support 1")
-        ShizukuManager.exec("settings put secure force_resizable_activities 1")
-        val cmd = "am start --display $displayId -a android.intent.action.MAIN -c android.intent.category.LAUNCHER --activity-single-top -n $effectiveComponent"
+        ShizukuManager.exec("settings put global force_resizable_activities 1")
+        ShizukuManager.exec("am force-stop $targetPackage")
+        val cmd = "am start --display $displayId --activity-new-task --activity-multiple-task -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $effectiveComponent"
         Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
         val result = ShizukuManager.exec(cmd)
         Log.i(TAG, "Launch result: $result")

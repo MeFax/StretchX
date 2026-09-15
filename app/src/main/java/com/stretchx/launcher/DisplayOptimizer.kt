@@ -151,7 +151,7 @@ object DisplayOptimizer {
 
             // 2. WindowManager Scaling & Freeform Settings
             ShizukuManager.exec("settings put global enable_freeform_support 1")
-            ShizukuManager.exec("settings put secure force_resizable_activities 1")
+            ShizukuManager.exec("settings put global force_resizable_activities 1")
             ShizukuManager.exec("cmd window scaling auto")
 
             // 3. Override Display Metrics in PORTRAIT
