@@ -1,9 +1,10 @@
 package com.stretchx.launcher
 
+import android.graphics.Matrix
 import android.os.IBinder
-import android.os.SystemClock
 import android.util.Log
 import android.view.InputEvent
+import android.view.MotionEvent
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuBinderWrapper
 import rikka.shizuku.SystemServiceHelper
@@ -65,7 +66,7 @@ object InputInjector {
 
     /**
      * Injects a touch event into the target display ID with asynchronous execution (mode 0).
-     * Automatically scales the coordinates from physical screen to virtual display dimensions.
+     * Uses Matrix transform to accurately scale ALL pointers simultaneously for 4-finger claw multi-touch.
      */
     fun injectScaledTouch(
         event: MotionEvent,
@@ -78,8 +79,11 @@ object InputInjector {
         return try {
             val clonedEvent = MotionEvent.obtain(event)
 
-            // 1. Transform coordinates from physical panel (3120x1440) to Virtual Display (1920x1440)
-            clonedEvent.setLocation(event.x * scaleFactorX, event.y * scaleFactorY)
+            // 1. Transform ALL pointers simultaneously (Multi-touch / Claw grip safe)
+            val matrix = Matrix().apply {
+                setScale(scaleFactorX, scaleFactorY)
+            }
+            clonedEvent.transform(matrix)
 
             // 2. Route event directly to the Virtual Display ID
             if (setDisplayIdMethod != null) {
