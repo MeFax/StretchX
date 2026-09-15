@@ -174,40 +174,50 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                 Log.i(TAG, "Resolved component for $targetPackage: $effectiveComponent")
                 updateStatus("Aktivite: $effectiveComponent")
             }
-        }
         if (effectiveComponent.isNullOrEmpty()) {
             updateStatus("HATA: Oyun aktivitesi cozulemedi, baslatma iptal.")
             Log.e(TAG, "Launch ABORTED: no concrete component for $targetPackage. Refusing silent Display 0 fallback.")
             Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
             return
         }
-        backupGlobalSettings()
-        ShizukuManager.exec("settings put global enable_freeform_support 1")
-        ShizukuManager.exec("settings put global force_resizable_activities 1")
-        ShizukuManager.exec("am compat enable 174042936 $targetPackage")
-        ShizukuManager.exec("am force-stop $targetPackage")
-        val cmd = "am start --user current --display $displayId -f 0x18000000 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $effectiveComponent"
-        var result = try {
-            val svc = stretchService
-            if (svc != null) {
-                svc.launchOnDisplay(displayId, targetPackage, effectiveComponent)
-            } else {
+        updateStatus("Oyun hazirlaniyor (arka planda)...")
+        Thread {
+            backupGlobalSettings()
+            ShizukuManager.exec("settings put global enable_freeform_support 1")
+            ShizukuManager.exec("settings put global force_resizable_activities 1")
+            ShizukuManager.exec("am compat enable 174042936 $targetPackage")
+            ShizukuManager.exec("am force-stop $targetPackage")
+            val cmd = "am start --user current --display $displayId -f 0x18000000 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $effectiveComponent"
+            Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
+            var result = try {
+                val svc = stretchService
+                if (svc != null) {
+                    svc.launchOnDisplay(displayId, targetPackage, effectiveComponent)
+                } else {
+                    ShizukuManager.exec(cmd)
+                }
+            } catch (e: Throwable) {
+                Log.e(TAG, "Programmatic launch failed, falling back to am", e)
                 ShizukuManager.exec(cmd)
             }
-        } catch (e: Throwable) {
-            Log.e(TAG, "Programmatic launch failed, falling back to am", e)
-            ShizukuManager.exec(cmd)
-        }
-        if (result.startsWith("ERR")) {
-            Log.w(TAG, "Programmatic launch returned error, falling back to am: $result")
-            updateStatus("Programatik ret, am deneniyor: ${result.take(120)}")
-            result = ShizukuManager.exec(cmd)
-        }
-        Log.i(TAG, "Launch result: $result")
-        updateStatus("Oyun baslatma: ${result.take(180)}")
-        // Wrapper/splash -> gercek aktivite hop'u icin iki asamali dogrulama.
-        mainHandler.postDelayed({ verifyAndRecover(displayId, 1) }, 2500)
-        mainHandler.postDelayed({ verifyAndRecover(displayId, 2) }, 7000)
+            if (result.startsWith("ERR")) {
+                Log.w(TAG, "Programmatic launch returned error, falling back to am: $result")
+                mainHandler.post { updateStatus("Programatik ret, am deneniyor: ${result.take(120)}") }
+                result = ShizukuManager.exec(cmd)
+            }
+            Log.i(TAG, "Launch result: $result")
+            val finalResult = result
+            mainHandler.post {
+                updateStatus("Oyun baslatma: ${finalResult.take(180)}")
+                if (finalResult.contains("Error", ignoreCase = true) || finalResult.contains("Exception", ignoreCase = true) || finalResult.startsWith("ERR")) {
+                    updateStatus("HATA: fırlatma reddedildi, komut cıktısı yukarıda.")
+                    return@post
+                }
+                // Wrapper/splash -> gercek aktivite hop'u icin iki asamali dogrulama.
+                mainHandler.postDelayed({ verifyAndRecover(displayId, 1) }, 2500)
+                mainHandler.postDelayed({ verifyAndRecover(displayId, 2) }, 7000)
+            }
+        }.start()
     }
 
     private fun resolveRealActivity(pkg: String): String? {
