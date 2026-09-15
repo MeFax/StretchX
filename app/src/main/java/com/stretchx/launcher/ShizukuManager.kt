@@ -50,11 +50,28 @@ object ShizukuManager {
 
     /**
      * Executes a shell command with rootless privileged ADB permissions via Shizuku.
+     * Uses reflection on newProcess to remain compatible across all Shizuku API versions.
      */
     fun exec(command: String): String {
         if (!hasPermission()) return "ERR_SHIZUKU_NO_PERMISSION"
         return try {
-            val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
+            val shizukuClass = Class.forName("rikka.shizuku.Shizuku")
+            val newProcessMethod = shizukuClass.getDeclaredMethod(
+                "newProcess",
+                Array<String>::class.java,
+                Array<String>::class.java,
+                String::class.java
+            ).apply {
+                isAccessible = true
+            }
+
+            val process = newProcessMethod.invoke(
+                null,
+                arrayOf("sh", "-c", command),
+                null,
+                null
+            ) as Process
+
             val reader = BufferedReader(InputStreamReader(process.inputStream))
             val sb = StringBuilder()
             var line: String?

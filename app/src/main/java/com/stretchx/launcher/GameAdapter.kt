@@ -39,7 +39,10 @@ class GameAdapter(
 
         holder.itemView.setOnClickListener {
             val prev = selectedIndex
-            selectedIndex = holder.bindingAdapterPosition
+            val pos = holder.adapterPosition
+            if (pos != RecyclerView.NO_POSITION) {
+                selectedIndex = pos
+            }
             games[prev].isSelected = false
             games[selectedIndex].isSelected = true
             notifyItemChanged(prev)
