@@ -36,6 +36,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
 
     private var targetPackage: String = ""
     private var targetComponent: String? = null
+    private var directGameComponent: String? = null
     private var virtWidth: Int = 1920
     private var virtHeight: Int = 1440
     private var virtDensity: Int = 440
@@ -225,18 +226,18 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Log.e(TAG, "Component resolve failed for $pkg", e)
             null
         }
-        // 4. UE4 splash bypass: dumpsys package'tan GameActivity'yi bul, varsa onu dondur.
-        // Splash sanal ekranda acilip GameActivity display'siz hop yapiyor; dogrudan Game'e
-        // vurmak hop'u ortadan kaldirir (shell UID exported-olmayani da baslatabilir).
+        // 4. UE4 GameActivity adayini NOT ET ama birincil yapma: Splash engine/OBB init
+        // yapar; Game'e direkt vurmak black/crash verip testi kirletebilir. Splash birincil,
+        // Game sadece splash Display 0'a duserse verifyAndRecover icinde fallback denenir.
         if (launchComp != null) {
             val allActs = ShizukuManager.exec("dumpsys package $pkg | grep -E 'Activity|targetActivity' | grep -i -E 'game|ue4'")
             val gameAct = Regex("""([a-zA-Z0-9_.]+\.(GameActivity|UEGameActivity|Game))""").find(allActs)?.groupValues?.get(1)
                 ?: Regex("""targetActivity=([a-zA-Z0-9_.\$]+Game[a-zA-Z0-9_.\$]*)""").find(allActs)?.groupValues?.get(1)
             if (!gameAct.isNullOrEmpty()) {
                 val direct = if (gameAct.contains("/")) gameAct else "$pkg/$gameAct"
-                Log.i(TAG, "Direct GameActivity bypass: $direct (wrapper was $launchComp)")
-                updateStatus("Direkt oyun: $direct")
-                return direct
+                Log.i(TAG, "GameActivity adayi (fallback): $direct (birincil: $launchComp)")
+                updateStatus("Oyun adayi: $direct")
+                directGameComponent = direct
             }
         }
         return launchComp
@@ -292,7 +293,22 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                         Log.i(TAG, "move-stack result: $move")
                         mainHandler.post {
                             updateStatus("Tasima sonucu($round): ${move.take(180)}")
-                            mainHandler.postDelayed({ verifyAndRecover(displayId, round + 10) }, 4000)
+                            // Splash Display 0'a dustuysa ve Game adayi varsa dogrudan dene.
+                            val direct = directGameComponent
+                            if (round >= 11 && !direct.isNullOrEmpty() && direct != targetComponent) {
+                                updateStatus("Direkt oyun deneniyor: $direct")
+                                Thread {
+                                    val cmd2 = "am start --display $displayId --activity-new-task --activity-multiple-task -n $direct"
+                                    val res2 = ShizukuManager.exec(cmd2)
+                                    Log.i(TAG, "Direct game launch: $res2")
+                                    mainHandler.post {
+                                        updateStatus("Direkt sonuc: ${res2.take(180)}")
+                                        mainHandler.postDelayed({ verifyAndRecover(displayId, round + 10) }, 4000)
+                                    }
+                                }.start()
+                            } else {
+                                mainHandler.postDelayed({ verifyAndRecover(displayId, round + 10) }, 4000)
+                            }
                         }
                     }.start()
                 } else {
