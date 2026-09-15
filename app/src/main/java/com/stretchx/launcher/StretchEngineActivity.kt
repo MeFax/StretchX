@@ -214,34 +214,47 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun verifyAndRecover(displayId: Int, round: Int) {
-        val dump = ShizukuManager.exec("dumpsys activity activities | grep -B12 -A3 '$targetPackage'")
-        Log.i(TAG, "Display $displayId verification dump (round $round): $dump")
+        val dump = ShizukuManager.exec("dumpsys activity activities")
+        Log.i(TAG, "Display $displayId verification dump (round $round): ${dump.take(2000)}")
         updateStatus("Dogrulama($round): ${dump.take(240)}")
-        // dumpsys yapisi: "Display #N" basligi altinda Task bloklari; taskId Task satirinda,
-        // paket Hist satirinda. grep -B12 -A3 Display basligini keseceginden bolum bazinda
-        // kontrol yerine: ayni Task blogu icinde hem paket hem dogru displayId aranir.
-        val taskBlocks = dump.split(Regex("(?=Task\\{|taskId=)"))
-        val gameBlock = taskBlocks.firstOrNull { it.contains(targetPackage) }
-        if (gameBlock != null) {
-            val blockHasTargetDisplay = gameBlock.contains("displayId=$displayId") ||
-                    Regex("""Display #${displayId}\b""").containsMatchIn(gameBlock)
-            if (blockHasTargetDisplay) {
-                updateStatus("OK: Oyun sanal ekranda (id=$displayId).")
-                return
+        // Hiyerarsi: Display #N basligi -> Task{... #taskId ...} blogu -> Hist satirinda paket.
+        // grep penceresi Display basligini kesebildigi icin full dump Kotlin'de parse edilir.
+        var currentDisplay: Int? = null
+        var gameDisplay: Int? = null
+        var gameTaskId: String? = null
+        var pendingTaskId: String? = null
+        var pendingDisplay: Int? = null
+        for (rawLine in dump.lines()) {
+            val line = rawLine.trim()
+            Regex("""Display #(\d+)""").find(line)?.let {
+                currentDisplay = it.groupValues[1].toIntOrNull()
+                pendingTaskId = null
+                pendingDisplay = null
             }
-            val blockDisplay = Regex("""displayId=(\d+)""").find(gameBlock)?.groupValues?.get(1)
-                ?: Regex("""Display #(\d+)""").find(gameBlock)?.groupValues?.get(1)
-            if (blockDisplay != null) {
-                updateStatus("Oyun Display $blockDisplay'de, hedef $displayId. Tasma deneniyor...")
+            val taskMatch = Regex("""Task\{[^}]*#(\d+)""").find(line)
+            if (taskMatch != null) {
+                pendingTaskId = taskMatch.groupValues[1]
+                pendingDisplay = Regex("""displayId=(\d+)""").find(line)?.groupValues?.get(1)?.toIntOrNull()
+                    ?: currentDisplay
+            }
+            if (line.contains(targetPackage) && (line.contains("Hist") || line.contains("packageName=") || line.contains("A="))) {
+                gameDisplay = pendingDisplay ?: currentDisplay
+                gameTaskId = pendingTaskId
+                break
             }
         }
-        val scope = gameBlock ?: dump
-        val taskId = Regex("""taskId=(\d+)""").find(scope)?.groupValues?.get(1)
-            ?: Regex("""Task\{[^}]*#(\d+)""").find(scope)?.groupValues?.get(1)
+        if (gameDisplay == displayId) {
+            updateStatus("OK: Oyun sanal ekranda (id=$displayId).")
+            return
+        }
+        if (gameDisplay != null) {
+            updateStatus("Oyun Display $gameDisplay'de, hedef $displayId. Tasma deneniyor...")
+        }
+        val taskId = gameTaskId
+            ?: Regex("""taskId=(\d+)""").find(dump)?.groupValues?.get(1)
         if (taskId != null) {
             updateStatus("Fallback goruldu($round), gorev $taskId sanal ekrana tasiniyor...")
             // Android 14/15: "am display move-stack" -> moveRootTaskToDisplay cagirir.
-            // Eski "am stack move-task" kaldirildi; sirayla dene, sonucu ekrana bas.
             var move = ShizukuManager.exec("am display move-stack $taskId $displayId")
             if (move.contains("Unknown command", ignoreCase = true) || move.contains("Unknown cmd", ignoreCase = true) || move.contains("Error", ignoreCase = true)) {
                 move = ShizukuManager.exec("am task move-task $taskId $displayId")
@@ -256,6 +269,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             updateStatus("UYARI($round): Oyun sanal ekranda gorunmuyor, gorev bulunamadi.")
         }
     }
+
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         Log.d(TAG, "Surface changed: width=$width, height=$height")
     }
