@@ -1,0 +1,18 @@
+<resources>
+    <string name="app_name">StretchX</string>
+    <string name="title_launcher">S25 Ultra True Stretch Launcher</string>
+    <string name="subtitle_launcher">Siyah Barsız Donanımsal Gerilmiş Oyun Çözünürlüğü</string>
+    <string name="shizuku_connected">Shizuku Servisi Aktif</string>
+    <string name="shizuku_disconnected">Shizuku Bağlantısı Gerekli</string>
+    <string name="btn_connect_shizuku">Shizuku İzni Ver</string>
+    <string name="preset_4_3_ultra">4:3 Ultra Netlik (1440x1920 @ 440 DPI)</string>
+    <string name="preset_4_3_fps">4:3 Yüksek FPS (1080x1440 @ 360 DPI)</string>
+    <string name="preset_16_10">16:10 Tablet Geniş (1440x2304 @ 480 DPI)</string>
+    <string name="preset_custom">Özel Çözünürlük</string>
+    <string name="btn_launch">OYUNU BAŞLAT VE TAM EKRAN GER</string>
+    <string name="btn_emergency_reset">EKRANI SIFIRLA (RESET)</string>
+    <string name="label_detected_games">Desteklenen Oyunlar</string>
+    <string name="overlay_active">Stretch Aktif (4:3)</string>
+    <string name="overlay_btn_reset">Normale Dön</string>
+    <string name="overlay_btn_restretch">Yeniden Ger</string>
+</resources>
