@@ -136,33 +136,41 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         val surface = pendingSurface ?: return
         val service = stretchService ?: return
         if (shellDisplayId > 0 || launchAttempted) return
+        launchAttempted = true
         updateStatus("3/4 Sanal ekran aciliyor ${virtWidth}x${virtHeight}...")
-        mainHandler.post {
+        Thread {
             try {
                 val id = service.createDisplay(virtWidth, virtHeight, virtDensity, surface)
-                shellDisplayId = id
                 Log.i(TAG, "Shell-owned VirtualDisplay id=$id ${virtWidth}x${virtHeight}@${virtDensity}dpi")
-                if (id <= 0) {
-                    val err = try { service.lastError } catch (_: Throwable) { "" }
-                    val flags = try { service.lastFlags } catch (_: Throwable) { "" }
-                    val ctx = try { service.contextSource } catch (_: Throwable) { "" }
-                    updateStatus("HATA: createDisplay id=$id. Bayrak=$flags | Baglam=$ctx | Hata=$err")
-                    Log.e(TAG, "Shell createDisplay failed id=$id flags=$flags ctx=$ctx err=$err")
-                    return@post
+                val err = if (id <= 0) { try { service.lastError } catch (_: Throwable) { "" } } else ""
+                val flags = if (id <= 0) { try { service.lastFlags } catch (_: Throwable) { "" } } else ""
+                val ctx = if (id <= 0) { try { service.contextSource } catch (_: Throwable) { "" } } else ""
+                mainHandler.post {
+                    if (isFinishing) return@post
+                    shellDisplayId = id
+                    if (id <= 0) {
+                        launchAttempted = false
+                        updateStatus("HATA: createDisplay id=$id. Bayrak=$flags | Baglam=$ctx | Hata=$err")
+                        Log.e(TAG, "Shell createDisplay failed id=$id flags=$flags ctx=$ctx err=$err")
+                        return@post
+                    }
+                    if (targetPackage.isEmpty()) {
+                        launchAttempted = false
+                        updateStatus("HATA: Hedef paket bos.")
+                        return@post
+                    }
+                    directGameComponent = null
+                    updateStatus("Sanal ekran hazir (id=$id). Oyun firlatiliyor...")
+                    launchTargetGameOnVirtualDisplay(id)
                 }
-                if (targetPackage.isEmpty()) {
-                    updateStatus("HATA: Hedef paket bos.")
-                    return@post
-                }
-                launchAttempted = true
-                directGameComponent = null
-                updateStatus("Sanal ekran hazir (id=$id). Oyun firlatiliyor...")
-                launchTargetGameOnVirtualDisplay(id)
             } catch (e: Throwable) {
-                updateStatus("HATA: Sanal ekran IPC basarisiz: ${e.message}")
                 Log.e(TAG, "Shell createDisplay IPC failed", e)
+                mainHandler.post {
+                    launchAttempted = false
+                    updateStatus("HATA: Sanal ekran IPC basarisiz: ${e.message}")
+                }
             }
-        }
+        }.start()
     }
 
     private fun launchTargetGameOnVirtualDisplay(displayId: Int) {
