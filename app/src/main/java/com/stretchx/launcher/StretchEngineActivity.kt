@@ -191,7 +191,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
     }
 
     private fun verifyAndRecover(displayId: Int) {
-        val dump = ShizukuManager.exec("dumpsys activity activities | grep -E 'displayId=$displayId|topResumedActivity|$targetPackage'")
+        val dump = ShizukuManager.exec("dumpsys activity activities | grep -B2 -A2 '$targetPackage'")
         Log.i(TAG, "Display $displayId verification dump: $dump")
         updateStatus("Dogrulama: ${dump.take(240)}")
         val onTarget = dump.lines().any { it.contains("displayId=$displayId") && it.contains(targetPackage) }
@@ -199,11 +199,16 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             updateStatus("OK: Oyun sanal ekranda (id=$displayId).")
             return
         }
-        val taskId = Regex("""taskId=(\d+)[^\n]*$targetPackage""").find(dump)?.groupValues?.get(1)
-            ?: Regex("""$targetPackage[^\n]*taskId=(\d+)""").find(dump)?.groupValues?.get(1)
+        val taskId = Regex("""taskId=(\d+)""").findAll(dump)
+            .map { it.groupValues[1] }
+            .firstOrNull()
         if (taskId != null) {
             updateStatus("Fallback goruldu, gorev $taskId sanal ekrana tasiniyor...")
-            val move = ShizukuManager.exec("am stack move-task $taskId $displayId")
+            // am stack move-task Android 10+'da kaldirildi; once modern komut, olmazsa legacy dene.
+            var move = ShizukuManager.exec("am task move-task $taskId $displayId")
+            if (move.contains("Unknown command", ignoreCase = true) || move.contains("Unknown cmd", ignoreCase = true)) {
+                move = ShizukuManager.exec("am stack move-task $taskId $displayId")
+            }
             Log.i(TAG, "move-task result: $move")
             updateStatus("Tasima sonucu: ${move.take(180)}")
         } else {
