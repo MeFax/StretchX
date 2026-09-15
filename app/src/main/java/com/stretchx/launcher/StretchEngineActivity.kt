@@ -180,21 +180,36 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
             Toast.makeText(this, "Oyun aktivitesi çözülemedi, başlatma iptal edildi.", Toast.LENGTH_LONG).show()
             return
         }
-        val cmd = "am start --display $displayId -n $effectiveComponent"
+        val cmd = "am start --display $displayId -a android.intent.action.MAIN -c android.intent.category.LAUNCHER --activity-single-top -n $effectiveComponent"
         Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
         val result = ShizukuManager.exec(cmd)
         Log.i(TAG, "Launch result: $result")
         updateStatus("Oyun baslatma: ${result.take(180)}")
         mainHandler.postDelayed({
-            verifyGameOnDisplay(displayId)
+            verifyAndRecover(displayId)
         }, 2500)
     }
-    private fun verifyGameOnDisplay(displayId: Int) {
-        val dump = ShizukuManager.exec("dumpsys activity activities | grep -E 'displayId=$displayId|topResumedActivity'")
+
+    private fun verifyAndRecover(displayId: Int) {
+        val dump = ShizukuManager.exec("dumpsys activity activities | grep -E 'displayId=$displayId|topResumedActivity|$targetPackage'")
         Log.i(TAG, "Display $displayId verification dump: $dump")
         updateStatus("Dogrulama: ${dump.take(240)}")
+        val onTarget = dump.lines().any { it.contains("displayId=$displayId") && it.contains(targetPackage) }
+        if (onTarget) {
+            updateStatus("OK: Oyun sanal ekranda (id=$displayId).")
+            return
+        }
+        val taskId = Regex("""taskId=(\d+)[^\n]*$targetPackage""").find(dump)?.groupValues?.get(1)
+            ?: Regex("""$targetPackage[^\n]*taskId=(\d+)""").find(dump)?.groupValues?.get(1)
+        if (taskId != null) {
+            updateStatus("Fallback goruldu, gorev $taskId sanal ekrana tasiniyor...")
+            val move = ShizukuManager.exec("am stack move-task $taskId $displayId")
+            Log.i(TAG, "move-task result: $move")
+            updateStatus("Tasima sonucu: ${move.take(180)}")
+        } else {
+            updateStatus("UYARI: Oyun sanal ekranda gorunmuyor, gorev bulunamadi.")
+        }
     }
-
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         Log.d(TAG, "Surface changed: width=$width, height=$height")
     }
