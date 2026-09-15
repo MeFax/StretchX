@@ -185,7 +185,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
         ShizukuManager.exec("settings put global force_resizable_activities 1")
         ShizukuManager.exec("am compat enable 174042936 $targetPackage")
         ShizukuManager.exec("am force-stop $targetPackage")
-        val cmd = "am start --user current --display $displayId --activity-new-task --activity-multiple-task -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $effectiveComponent"
+        val cmd = "am start --user current --display $displayId -f 0x18000000 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n $effectiveComponent"
         Log.i(TAG, "Launching game on shell-owned display [$displayId]: $cmd")
         val result = ShizukuManager.exec(cmd)
         Log.i(TAG, "Launch result: $result")
@@ -298,7 +298,7 @@ class StretchEngineActivity : AppCompatActivity(), SurfaceHolder.Callback {
                             if (round >= 11 && !direct.isNullOrEmpty() && direct != targetComponent) {
                                 updateStatus("Direkt oyun deneniyor: $direct")
                                 Thread {
-                                    val cmd2 = "am start --user current --display $displayId --activity-new-task --activity-multiple-task -n $direct"
+                                    val cmd2 = "am start --user current --display $displayId -f 0x18000000 -n $direct"
                                     val res2 = ShizukuManager.exec(cmd2)
                                     Log.i(TAG, "Direct game launch: $res2")
                                     mainHandler.post {
